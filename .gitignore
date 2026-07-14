@@ -1,0 +1,39 @@
+# Docs (brainstorms, plans — kept local, not tracked)
+docs/
+
+# Dependencies
+node_modules/
+
+# Build / cache
+.turbo/
+dist/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+
+# Rust / Soroban (contracts also has its own .gitignore)
+target/
+
+# Env — keep the templates
+.env
+.env.*
+!.env.example
+
+# Stellar / Soroban secrets — .stellar/ can hold funded testnet secret keys
+.stellar/
+**/.stellar/
+secret-key*
+*.secret
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

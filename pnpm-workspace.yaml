@@ -1,0 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# apps/contracts has no package.json, so pnpm ignores it automatically.
+
+# Build scripts pnpm should NOT run (optional native deps; prebuilt binaries are used).
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

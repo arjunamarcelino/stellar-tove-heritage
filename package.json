@@ -1,0 +1,24 @@
+{
+  "name": "stellar-tove-heritage",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "check-types": "turbo run check-types",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3",
+    "turbo": "^2",
+    "typescript": "^5",
+    "@types/node": "^24"
+  }
+}

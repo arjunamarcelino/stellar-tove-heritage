@@ -1,0 +1,14 @@
+# Rust / Cargo build artifacts (compiled wasm lives here)
+/target/
+
+# Stellar CLI local state — identities/aliases; CAN HOLD FUNDED SECRET KEYS. Never commit.
+.stellar/
+
+# Env / secrets — keep the template
+.env
+.env.*
+!.env.example
+
+.DS_Store
+
+# NOTE: Cargo.lock is intentionally committed (this is a deployable, not a library).

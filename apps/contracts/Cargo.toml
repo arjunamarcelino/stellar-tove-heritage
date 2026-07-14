@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["contracts/*"]
+
+[workspace.dependencies]
+soroban-sdk = "26"
+
+# Release profile tuned for small, deployable wasm (Soroban upload size limits).
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
