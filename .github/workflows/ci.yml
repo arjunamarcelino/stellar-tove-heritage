@@ -39,6 +39,8 @@ jobs:
         with:
           toolchain: stable
           target: wasm32v1-none
+      - name: Install stellar-cli build deps (libdbus for keyring)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - run: cargo install --locked stellar-cli
       - name: Build contract
         working-directory: apps/contracts
