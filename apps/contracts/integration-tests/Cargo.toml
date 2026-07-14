@@ -1,0 +1,30 @@
+[package]
+name = "integration-tests"
+description = "Cross-contract integration tests for the Tove wallet stack (U5 / AE3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Deliberately NO cdylib: this crate must never produce a WASM artifact
+# (`stellar contract build` only builds cdylib packages, so it skips this one).
+[lib]
+doctest = false
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+stellar-accounts = { workspace = true }
+tove-smart-wallet = { path = "../contracts/tove-smart-wallet" }
+tove-wallet-factory = { path = "../contracts/tove-wallet-factory" }
+tove-webauthn-verifier = { path = "../contracts/tove-webauthn-verifier" }
+tove-ed25519-verifier = { path = "../contracts/tove-ed25519-verifier" }
+tove-fraction-token = { path = "../contracts/tove-fraction-token" }
+# Real factory + settler for the TOV-179 end-to-end settle path.
+tove-fraction-factory = { path = "../contracts/tove-fraction-factory" }
+tove-marketplace-settler = { path = "../contracts/tove-marketplace-settler" }
+# Real gating contracts for the TOV-140 KYC/freeze legs of fraction_token.rs.
+tove-kyc-allowlist = { path = "../contracts/tove-kyc-allowlist" }
+tove-emergency-freeze = { path = "../contracts/tove-emergency-freeze" }
+# Same dev-deps tove-webauthn-verifier uses for its real-signature tests.
+p256 = { version = "0.13.2", features = ["ecdsa"] }
+hex-literal = "1.0.0"

@@ -30,21 +30,9 @@ jobs:
             exit 1
           fi
 
-  contracts:
-    name: Soroban contract
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
-        with:
-          toolchain: stable
-          target: wasm32v1-none
-      - name: Install stellar-cli build deps (libdbus for keyring)
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - run: cargo install --locked stellar-cli
-      - name: Build contract
-        working-directory: apps/contracts
-        run: stellar contract build
-      - name: Test contract
-        working-directory: apps/contracts
-        run: cargo test
+  # NOTE: the Soroban contract pipeline moved to contracts-ci.yml — a dedicated
+  # 4-job workflow (unit+integration, wasm build, canonical-wasm determinism,
+  # testnet e2e) pinned to the 1.95.0 toolchain that apps/contracts/rust-toolchain.toml
+  # requires for byte-reproducible canonical hashes. A single `toolchain: stable`
+  # build here would fight that pin, so this job was removed to avoid duplicate
+  # (and conflicting) contract CI.

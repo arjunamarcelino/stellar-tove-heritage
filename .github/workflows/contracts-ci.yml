@@ -1,0 +1,136 @@
+name: Contracts CI
+
+# Soroban (Rust) contract pipeline for apps/contracts. Runs only when the
+# contract workspace (or this file) changes — the JS workspace has its own job
+# in ci.yml. Toolchain is pinned to 1.95.0 to match apps/contracts/rust-toolchain.toml
+# so the canonical wasm-manifest.txt hashes stay byte-reproducible (FR-04.12).
+
+on:
+  push:
+    paths:
+      - "apps/contracts/**"
+      - ".github/workflows/contracts-ci.yml"
+  pull_request:
+    paths:
+      - "apps/contracts/**"
+      - ".github/workflows/contracts-ci.yml"
+
+concurrency:
+  group: contracts-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/contracts
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned; asset name verified against the stellar/stellar-cli release page.
+  STELLAR_CLI_VERSION: "27.0.0"
+
+jobs:
+  test:
+    name: Unit + integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+      - name: Install stellar CLI
+        run: |
+          curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          stellar --version
+      # Wallet upgrade test and the factory integration suite contractimport
+      # the built wasm, so the build must precede cargo test.
+      - name: Build contract WASM (test fixtures)
+        run: |
+          stellar contract build
+          stellar contract optimize --wasm target/wasm32v1-none/release/tove_smart_wallet.wasm
+      - name: Workspace tests
+        run: cargo test --workspace
+      - name: Factory integration-gated tests
+        run: cargo test -p tove-wallet-factory --features integration
+
+  build:
+    name: WASM release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+      - name: Install stellar CLI
+        run: |
+          curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          stellar --version
+      - name: Build all contracts
+        run: stellar contract build
+
+  canonical-wasm:
+    name: Canonical WASM determinism
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+      - name: Install stellar CLI
+        run: |
+          curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          stellar --version
+      # Builds the production WASM set and compares SHA-256 against the
+      # committed wasm-manifest.txt (TOV-146). Drift — a stale manifest or an
+      # unintended bytecode change — fails the job red. The --check rebuilds
+      # and re-hashes, so it also proves the build is reproducible against the
+      # recorded canonical hashes.
+      - name: Verify canonical WASM manifest (no drift)
+        run: bash scripts/build-canonical.sh --check
+
+  e2e-testnet:
+    name: Testnet e2e smoke
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/contracts
+      - name: Install stellar CLI
+        run: |
+          curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_CLI_VERSION}/stellar-cli-${STELLAR_CLI_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin
+          stellar --version
+      # Fresh friendbot-funded keypair per run (no secrets); retried as a
+      # whole because the public testnet RPC intermittently returns 429 /
+      # TRY_AGAIN_LATER. A retry only reruns on network flake — contract
+      # failures fail again deterministically.
+      - name: Run e2e smoke against testnet
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 60
+          command: cd apps/contracts && bash scripts/e2e_testnet.sh

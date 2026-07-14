@@ -1,0 +1,22 @@
+[package]
+name = "tove-wallet-factory"
+description = "Deploys per-user Tove smart wallets from the canonical WASM (Soroban, TOV-38)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[features]
+# Tests that need the built wallet WASM (run: `stellar contract build` first, then
+# `cargo test -p tove-wallet-factory --features integration`).
+integration = []
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-accounts = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

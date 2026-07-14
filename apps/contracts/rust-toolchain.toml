@@ -1,5 +1,8 @@
+# Pinned so the canonical WASM build is byte-reproducible across machines
+# and CI (TOV-146). The committed wasm-manifest.txt hashes are produced with
+# exactly this toolchain; bumping the channel requires regenerating the
+# manifest via `scripts/build-canonical.sh`.
 [toolchain]
-# stable satisfies both the wasm target (needs >= 1.84) and the Stellar CLI
-# source build (needs >= 1.93).
-channel = "stable"
+channel = "1.95.0"
 targets = ["wasm32v1-none"]
+profile = "minimal"

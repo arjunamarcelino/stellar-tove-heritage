@@ -1,0 +1,22 @@
+[package]
+name = "tove-fraction-factory"
+description = "Admin-gated factory deploying one canonical FractionToken per artwork at a deterministic address (TOV-137)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+# Type dependency only: the factory forwards the token's `TokenInit`
+# constructor struct verbatim (with `impl_wasm_hash` overridden).
+# `default-features = false` drops the token's exported entrypoints — with
+# them on, its `__constructor` export collides with the factory's at wasm
+# link time.
+tove-fraction-token = { path = "../tove-fraction-token", default-features = false }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

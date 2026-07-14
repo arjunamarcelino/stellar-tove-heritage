@@ -1,0 +1,32 @@
+[package]
+name = "tove-fraction-token"
+description = "Upgradeable per-artwork fraction token skeleton on the OpenZeppelin fungible base (Soroban, TOV-147)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[features]
+# `contract` (default) compiles the exported contract entrypoints. Dependents
+# that only need the shared types (`TokenInit`, `Error`) — e.g. the factory
+# (TOV-137) — must set `default-features = false`: the wasm export symbols
+# (notably `__constructor`) would otherwise collide with theirs at link time.
+default = ["contract"]
+contract = []
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-tokens = { workspace = true }
+stellar-contract-utils = { workspace = true }
+
+# The gating contracts are DEV-deps only (real instances registered in the
+# test Env). Production gating calls are dynamic `invoke_contract`s against
+# the stored addresses — a [dependencies] path-dep would drag their
+# `__constructor` exports into this WASM link (TOV-137 symbol collision).
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+tove-kyc-allowlist = { path = "../tove-kyc-allowlist" }
+tove-emergency-freeze = { path = "../tove-emergency-freeze" }

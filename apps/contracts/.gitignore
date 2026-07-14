@@ -1,14 +1,45 @@
-# Rust / Cargo build artifacts (compiled wasm lives here)
-/target/
+# ---- Rust / Anchor ----
+target/
+**/target/
+.anchor/
+test-ledger/
+**/*.rs.bk
 
-# Stellar CLI local state — identities/aliases; CAN HOLD FUNDED SECRET KEYS. Never commit.
-.stellar/
-
-# Env / secrets — keep the template
+# ---- Solana keypairs & secrets (NEVER COMMIT) ----
+*-keypair.json
+id.json
+wallet*.json
+/wallets/
 .env
 .env.*
 !.env.example
+!.env.deploy.example
 
+# ---- Node / TS tooling ----
+node_modules/
+dist/
+.pnp.*
+*.tsbuildinfo
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ---- OS / editors ----
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
 
-# NOTE: Cargo.lock is intentionally committed (this is a deployable, not a library).
+# ---- Local-only docs, notes & internal tooling (kept out of remote) ----
+docs/
+notes/
+todos/
+scratch/
+.claude/
+CLAUDE.md
+AGENTS.md
+*.local.md
