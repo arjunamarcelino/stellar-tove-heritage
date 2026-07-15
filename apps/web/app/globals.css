@@ -1,26 +1,128 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+@theme {
+  /* Colors — derived from art-world materials */
+  --color-umber: #1c1714;
+  --color-charcoal: #2c2c2c;
+  --color-ink: #1a1a1a;
+  --color-graphite: #2a2a2a;
+  --color-graphite-light: #333333;
+  --color-sienna: #8b4513;
+  --color-ochre: #c8913a;
+  --color-flint: #6b6560;
+  --color-rose-ash: #b8a09a;
+  --color-parchment: #ede8df;
+  --color-bone: #e8e0d4;
+  --color-alabaster: #f7f4ef;
+  --color-cream: #fbf7f2;
+
+  /* Typography */
+  --font-heading: var(--font-lora), serif;
+  --font-body: var(--font-montserrat), sans-serif;
+
+  /* Spacing */
+  --spacing-section: clamp(5rem, 8vw, 9rem);
+  --spacing-gutter: clamp(1.5rem, 4vw, 3rem);
+
+  /* Layout */
+  --width-content: 72rem;
+  --width-narrow: 48rem;
+
+  /* Transitions */
+  --ease-gallery: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Layout ─────────────────────────────────────── */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --header-height: 4rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@media (max-width: 1023px) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --header-height: 3.5rem;
   }
 }
 
+section[id] {
+  scroll-margin-top: var(--header-height);
+}
+
+/* ── Focus styles ───────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--color-sienna);
+  outline-offset: 2px;
+}
+
+/* ── Selection ──────────────────────────────────── */
+
+::selection {
+  background-color: var(--color-ochre);
+  color: var(--color-cream);
+}
+
+/* ── Skip nav ───────────────────────────────────── */
+
+.skip-nav {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  background: var(--color-umber);
+  color: var(--color-cream);
+  font-weight: 500;
+}
+
+.skip-nav:focus {
+  left: 0;
+}
+
+/* ── Base body styles ───────────────────────────── */
+
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
+  color: var(--color-umber);
+  background-color: var(--color-alabaster);
+}
+
+/* ── Dialog animations ─────────────────────────── */
+
+.wallet-dialog:open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.wallet-dialog {
+  opacity: 0;
+  transform: translateY(-1rem);
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease,
+    overlay 0.25s allow-discrete,
+    display 0.25s allow-discrete;
+
+  @starting-style {
+    &:open {
+      opacity: 0;
+      transform: translateY(-1rem);
+    }
+  }
+}
+
+.wallet-dialog::backdrop {
+  background: rgb(0 0 0 / 0);
+  transition:
+    background 0.25s ease,
+    overlay 0.25s allow-discrete,
+    display 0.25s allow-discrete;
+}
+
+.wallet-dialog:open::backdrop {
+  background: rgb(0 0 0 / 0.6);
 }
