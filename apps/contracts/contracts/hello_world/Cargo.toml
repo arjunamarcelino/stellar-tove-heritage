@@ -13,8 +13,3 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-# Pin ed25519-dalek to 2.x. soroban-env-host requires ">=2.0.0" (open upper bound),
-# but its testutils only work with ed25519-dalek 2.x / rand_core 0.6. Without this
-# pin, Cargo resolves 3.0.0 and `cargo test` fails on a CryptoRng trait bound.
-# (dev-dep only — does not affect the wasm build.)
-ed25519-dalek = "=2.1.1"
