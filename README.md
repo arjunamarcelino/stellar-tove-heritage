@@ -6,6 +6,41 @@ Monorepo for **Tove Heritage** — an art-tokenization web3 project on the
 This is the initial scaffold: minimal fresh apps wired into one pnpm + Turborepo
 workspace. Business logic lands in follow-up PRs.
 
+## Live deployment
+
+| Surface      | URL                                                              |
+| ------------ | ---------------------------------------------------------------- |
+| Landing page | [stellar.toveheritage.org](http://stellar.toveheritage.org/)     |
+| Web app      | [stellar-app.toveheritage.org](http://stellar-app.toveheritage.org/) |
+
+### On-chain contract
+
+Primary token contract on the **Stellar testnet**:
+
+- **USDC (mock) token:** `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`
+
+The platform's base infrastructure is deployed by `scripts/deploy_testnet.sh`
+(testnet resets quarterly):
+
+| Contract               | Address                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| USDC Mock (token)      | `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA` |
+| Wallet Factory         | `CC6NIHQXMNZEJ2PWELRFEWCWSWPJRJ5FMV2PTAJLWO6JFSPQXP5PQY5P` |
+| Fraction Factory       | `CBIEG2HR66SFX5KG4CPEP6RPZ4JNDGGXY3NDICU37DFSWYPUUTFAHVUK` |
+| Marketplace Settler    | `CDW5RGVHGHC3LDH3XT5Z6KK2OIOVMAH7UALCTKGXWPC5COHD732J3UTR` |
+| KYC Allowlist          | `CCNR6WXKK42KPM2ACH5M3GET3BMIJNUEEWJYEBQKEHLDI27YT5ZLNHCP` |
+| Emergency Freeze       | `CAQEMD5FG23AGYK5HGIUW37ZNOD4MFQJ6X27IP6NVCE7R4QZEXRX47UZ` |
+| Registry Anchor        | `CBTBVDC7XGEAAKIICP4QMS34OAZ3A7BA6P2K7WIZK4G3UKM556ZQSYTE` |
+| WebAuthn Verifier      | `CB5CTQGFPV42EFVVTAIGE6RMZC5YPKKSKNQCU7KGRXIZZT572GNSGR6T` |
+| Ed25519 Verifier       | `CDORJEZW2CSEUTAOVOSS4WLACL5P5BJPHTY2TGIGSLL4X372VJTU676L` |
+
+Network parameters:
+
+- **Network:** testnet
+- **RPC URL:** `https://soroban-testnet.stellar.org`
+- **Passphrase:** `Test SDF Network ; September 2015`
+- **Admin:** `GCFJFGJDJMMCJFHIL7HDG3VGVTD6NCMNRWFMX6M3PA7YDRHFGF6E3LR5`
+
 ## Structure
 
 ```
