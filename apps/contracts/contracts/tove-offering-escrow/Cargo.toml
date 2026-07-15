@@ -1,0 +1,26 @@
+[package]
+name = "tove-offering-escrow"
+description = "Per-offering IPO escrow: escrows USDC per bid, then atomically mints the FractionToken distribution, refunds, and splits 3%/97% on settle (TOV-159, FR-05.04/06/10)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+# The FractionToken and its gating contracts are DEV-deps only — the escrow
+# settles against them cross-contract via dynamic `invoke_contract` on the
+# stored addresses (zero WASM coupling). A [dependencies] path-dep would drag
+# their `__constructor` export into this WASM link (the TOV-137 symbol
+# collision). The token needs REAL KycAllowlist + EmergencyFreeze instances at
+# construction (its `mint_settle` funnels every recipient through them), so the
+# harness registers genuine ones — hence all three appear here.
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+tove-fraction-token = { path = "../tove-fraction-token" }
+tove-kyc-allowlist = { path = "../tove-kyc-allowlist" }
+tove-emergency-freeze = { path = "../tove-emergency-freeze" }

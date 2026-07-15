@@ -1,0 +1,24 @@
+[package]
+name = "tove-smart-wallet"
+description = "Tove canonical passkey-bound smart wallet (Soroban, TOV-38)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-accounts = { workspace = true }
+stellar-contract-utils = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+# Golden-vector test (TOV-22): drives the REAL WebAuthn verifier + a real P-256
+# passkey signature through the wallet's `__check_auth`, proving the exact
+# on-chain AuthPayload the backend relayer must produce. Dev-deps never link
+# into the wallet's own cdylib, so registering the real verifier here is safe.
+tove-webauthn-verifier = { path = "../tove-webauthn-verifier" }
+p256 = { version = "0.13.2", features = ["ecdsa"] }

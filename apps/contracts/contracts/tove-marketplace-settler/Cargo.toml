@@ -1,0 +1,24 @@
+[package]
+name = "tove-marketplace-settler"
+description = "Secondary-market RFQ trade settler singleton (TOV-179): native dual-auth + one-shot, atomically drives FractionToken.settle_trade"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+stellar-contract-utils = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+# Real settle path in the unit suite — dev-deps never link into this cdylib
+# (the TOV-137 __constructor-symbol lesson), so registering the real token +
+# gating contracts here is safe. token_of resolution is exercised against a
+# real fraction-factory in the integration test (integration-tests).
+tove-fraction-token = { path = "../tove-fraction-token" }
+tove-kyc-allowlist = { path = "../tove-kyc-allowlist" }
+tove-emergency-freeze = { path = "../tove-emergency-freeze" }

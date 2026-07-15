@@ -30,31 +30,9 @@ jobs:
             exit 1
           fi
 
-  contracts:
-    name: Soroban contract
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
-        with:
-          toolchain: stable
-          target: wasm32v1-none
-      - name: Install Stellar CLI (prebuilt binary)
-        run: |
-          curl -sSfL \
-            https://github.com/stellar/stellar-cli/releases/download/v27.0.0/stellar-cli-27.0.0-x86_64-unknown-linux-gnu.tar.gz \
-            -o /tmp/stellar.tar.gz
-          mkdir -p /tmp/stellar-cli
-          tar -xzf /tmp/stellar.tar.gz -C /tmp/stellar-cli
-          sudo cp "$(find /tmp/stellar-cli -type f -name stellar | head -1)" /usr/local/bin/stellar
-          sudo chmod +x /usr/local/bin/stellar
-          stellar --version
-      - name: Build contract
-        working-directory: apps/contracts
-        run: stellar contract build
-      - name: Pin ed25519-dalek to 2.x (env-host testutils incompatible with 3.0)
-        working-directory: apps/contracts
-        run: cargo update -p ed25519-dalek@3.0.0 --precise 2.1.1
-      - name: Test contract
-        working-directory: apps/contracts
-        run: cargo test
+  # NOTE: the Soroban contract pipeline moved to contracts-ci.yml — a dedicated
+  # 4-job workflow (unit+integration, wasm build, canonical-wasm determinism,
+  # testnet e2e) pinned to the 1.95.0 toolchain that apps/contracts/rust-toolchain.toml
+  # requires for byte-reproducible canonical hashes. A single `toolchain: stable`
+  # build here would fight that pin, so this job was removed to avoid duplicate
+  # (and conflicting) contract CI.

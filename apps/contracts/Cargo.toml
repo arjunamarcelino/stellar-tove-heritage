@@ -1,11 +1,34 @@
 [workspace]
 resolver = "2"
-members = ["contracts/*"]
+members = [
+    "contracts/*",
+    "integration-tests",
+    # TEST FIXTURE ONLY (TOV-151): a deliberately hostile FractionToken
+    # executable the invariant-gate tests upgrade INTO. Built by
+    # `stellar contract build` like every cdylib member — the resulting
+    # tove_evil_fraction_token.wasm artifact is expected, documented, and
+    # NEVER deployed (deploy scripts resolve wasm per crate name; recorded
+    # for the TOV-146 canonical-hash verification).
+    "test-fixtures/tove-evil-fraction-token",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
 
 [workspace.dependencies]
-soroban-sdk = "26"
+soroban-sdk = "26.1.0"
+# OpenZeppelin Stellar smart-account building blocks (audited): smart_account
+# (CustomAccountInterface + do_check_auth), verifiers (secp256r1/WebAuthn, ed25519),
+# policies, and the upgradeable utility.
+stellar-accounts = "0.7.2"
+stellar-contract-utils = "0.7.2"
+# OpenZeppelin audited fungible-token base (FungibleToken trait + Base) — the
+# SEP-41 foundation of tove-fraction-token. Must stay in version lockstep with
+# stellar-accounts / stellar-contract-utils (single 0.7.x line).
+stellar-tokens = "0.7.2"
 
-# Release profile tuned for small, deployable wasm (Soroban upload size limits).
 [profile.release]
 opt-level = "z"
 overflow-checks = true
@@ -15,3 +38,7 @@ debug-assertions = false
 panic = "abort"
 codegen-units = 1
 lto = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

@@ -1,0 +1,27 @@
+[package]
+name = "tove-evil-fraction-token"
+description = "TEST FIXTURE — hostile FractionToken executable for the TOV-151 invariant-gate tests. NEVER DEPLOY."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# Belt and suspenders: this crate must never leave the repo as a package.
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+# Schema-version helpers only (`upgradeable::{upgrade, set_schema_version,
+# get_schema_version}`) — same shape as the canonical token's migrate arm.
+stellar-contract-utils = { workspace = true }
+# Type dependency only, for the shared `Error` enum — reusing the canonical
+# type keeps the wire error codes identical by construction (InvariantViolated
+# = #1). `default-features = false` drops the token's exported entrypoints:
+# with them on, its `__constructor` (and every other export) would collide
+# with this crate's at wasm link time — the TOV-137 lesson. NOTE: the token's
+# `DataKey` / `InvariantSnapshot` are `contract`-feature-gated, so they are
+# deliberately NOT available here; this crate carries local mirrors instead
+# (see src/lib.rs for why that is the point, not a workaround).
+tove-fraction-token = { path = "../../contracts/tove-fraction-token", default-features = false }
