@@ -1,0 +1,148 @@
+import 'server-only';
+
+import { z } from 'zod/v4';
+import type {
+  PublicKeyCredentialCreationOptionsJSON,
+  PasskeyBeginResult,
+  PasskeyFinishServiceResult,
+  PasskeyServiceErrorCode,
+  FinishPasskeyInput,
+} from '@/lib/types/api';
+import { postJson, extractBackendCode, extractBackendMessage } from '@/lib/services/http';
+
+// Contract confirmed by TOV-21 (see docs/plans + the FE brief). Error bodies share the shape
+// { statusCode, error, message, errorCode } — we branch on `errorCode`, falling back to HTTP status.
+
+// begin issues a challenge (fast); finish deploys a contract on-chain (a few seconds, up to ~20s).
+const BEGIN_TIMEOUT_MS = 10_000;
+const FINISH_TIMEOUT_MS = 35_000;
+
+// finish 201 = { accessToken, refreshToken, contractAddress } (dedicated PasskeyRegisterResponseDto).
+// The BFF sets its own httpOnly cookies from the tokens, so refreshToken is required here even
+// though the backend DTO marks it optional.
+const finishResponseSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+  contractAddress: z.string(),
+});
+
+const DEFAULT_MESSAGES: Record<PasskeyServiceErrorCode, string> = {
+  VALIDATION_ERROR: 'Please check your details and try again.',
+  EMAIL_CONFLICT: 'That email is already registered. Try signing in instead.',
+  PASSKEY_ALREADY_BOUND: 'This passkey is already registered. Try signing in instead.',
+  AUTH_CHALLENGE_EXPIRED: 'Your registration session expired. Please start over.',
+  PASSKEY_VERIFICATION_FAILED: "We couldn't verify your passkey. Please start over.",
+  WALLET_DEPLOY_FAILED: "We couldn't finish creating your wallet. Please try again.",
+  RATE_LIMITED: 'Too many attempts. Please wait a moment and try again.',
+  SERVER_ERROR: 'Something went wrong. Please try again.',
+  NETWORK_ERROR: 'Unable to reach the server. Check your connection and try again.',
+};
+
+// Maps the backend `errorCode` to our client taxonomy. Returns undefined when there's no explicit
+// code, so the caller can fall back to HTTP status.
+function mapBackendErrorCode(errorCode: string | undefined): PasskeyServiceErrorCode | undefined {
+  switch (errorCode) {
+    case 'VALIDATION_FAILED':
+      return 'VALIDATION_ERROR';
+    case 'AUTH_EMAIL_CONFLICT':
+      return 'EMAIL_CONFLICT';
+    case 'PASSKEY_ALREADY_BOUND':
+      return 'PASSKEY_ALREADY_BOUND';
+    case 'AUTH_CHALLENGE_EXPIRED':
+    case 'AUTH_CHALLENGE_NOT_FOUND':
+    case 'AUTH_CHALLENGE_ALREADY_USED':
+      return 'AUTH_CHALLENGE_EXPIRED';
+    case 'AUTH_PASSKEY_VERIFICATION_FAILED':
+      return 'PASSKEY_VERIFICATION_FAILED';
+    case 'WALLET_DEPLOY_FAILED':
+      return 'WALLET_DEPLOY_FAILED';
+    case 'RATE_LIMITED':
+      return 'RATE_LIMITED';
+    default:
+      return undefined;
+  }
+}
+
+function mapServiceError(
+  status: number,
+  data: unknown,
+  fallbackConflict: PasskeyServiceErrorCode,
+): { code: PasskeyServiceErrorCode; message: string } {
+  let code = mapBackendErrorCode(extractBackendCode(data));
+  if (!code) {
+    if (status === 0) code = 'NETWORK_ERROR';
+    else if (status === 409) code = fallbackConflict;
+    else if (status === 429) code = 'RATE_LIMITED';
+    else if (status === 400) code = 'VALIDATION_ERROR';
+    else if (status === 503) code = 'WALLET_DEPLOY_FAILED';
+    else code = 'SERVER_ERROR';
+  }
+  const fallback = DEFAULT_MESSAGES[code];
+  // status 0 = no response reached; there is no backend message to surface.
+  return { code, message: status === 0 ? fallback : extractBackendMessage(data, fallback) };
+}
+
+// The begin body is { options } — passed verbatim into startRegistration. Preserve the object
+// (never strip/re-validate); accept a bare-options envelope too, defensively.
+function extractOptions(data: unknown): PublicKeyCredentialCreationOptionsJSON | null {
+  if (!data || typeof data !== 'object') return null;
+  const wrapped = (data as { options?: unknown }).options;
+  const opts = wrapped ?? data;
+  if (
+    opts &&
+    typeof opts === 'object' &&
+    typeof (opts as { challenge?: unknown }).challenge === 'string'
+  ) {
+    return opts as PublicKeyCredentialCreationOptionsJSON;
+  }
+  return null;
+}
+
+export async function begin(email: string): Promise<PasskeyBeginResult> {
+  const outcome = await postJson(
+    '/v1/auth/passkey/register/begin',
+    { email },
+    { timeoutMs: BEGIN_TIMEOUT_MS },
+  );
+  if (!outcome.ok) {
+    return { status: 'error', ...mapServiceError(outcome.status, outcome.data, 'EMAIL_CONFLICT') };
+  }
+  const options = extractOptions(outcome.data);
+  if (!options) {
+    return {
+      status: 'error',
+      code: 'SERVER_ERROR',
+      message: 'Received invalid registration options from the server.',
+    };
+  }
+  return { status: 'success', options };
+}
+
+export async function finish(input: FinishPasskeyInput): Promise<PasskeyFinishServiceResult> {
+  const { email, attestationResponse } = input;
+  const outcome = await postJson(
+    '/v1/auth/passkey/register/finish',
+    { email, attestationResponse },
+    { timeoutMs: FINISH_TIMEOUT_MS },
+  );
+  if (!outcome.ok) {
+    return {
+      status: 'error',
+      ...mapServiceError(outcome.status, outcome.data, 'PASSKEY_ALREADY_BOUND'),
+    };
+  }
+  const parsed = finishResponseSchema.safeParse(outcome.data);
+  if (!parsed.success) {
+    return {
+      status: 'error',
+      code: 'SERVER_ERROR',
+      message: 'Received an invalid registration response from the server.',
+    };
+  }
+  return {
+    status: 'success',
+    accessToken: parsed.data.accessToken,
+    refreshToken: parsed.data.refreshToken,
+    contractAddress: parsed.data.contractAddress,
+  };
+}
