@@ -54,7 +54,7 @@ jobs:
         run: stellar contract build
       - name: Pin ed25519-dalek to 2.x (env-host testutils incompatible with 3.0)
         working-directory: apps/contracts
-        run: cargo update -p ed25519-dalek --precise 2.1.1
+        run: cargo update -p ed25519-dalek@3.0.0 --precise 2.1.1
       - name: Test contract
         working-directory: apps/contracts
         run: cargo test
