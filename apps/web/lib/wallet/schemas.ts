@@ -33,3 +33,18 @@ export const signedExportItemsSchema = z
     }),
   )
   .min(1, 'At least one signed item is required');
+
+// Shape guard for the per-item signed assertions the client sends to rotate-transfer/submit (TOV-48).
+// Structurally identical to signedExportItemsSchema but kept distinct (no premature abstraction over two
+// irreversible money flows). The Equals guard in walletRotate.ts asserts it can't drift from
+// SignedRotationItem, so the action can forward the ORIGINAL objects without stripping fields.
+export const signedRotationItemsSchema = z
+  .array(
+    z.object({
+      itemId: z.string(),
+      authenticatorData: z.string(),
+      clientDataJSON: z.string(),
+      signature: z.string(),
+    }),
+  )
+  .min(1, 'At least one signed item is required');

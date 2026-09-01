@@ -28,6 +28,7 @@ import { BackofficeGuard } from '@common/guards/backoffice.guard';
 import { BackofficeRequest } from '@common/interfaces/backoffice-request.interface';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '@common/dto/paginated-response.dto';
+import { ApiPaginatedResponse } from '@common/decorators/api-paginated-response.decorator';
 import { StagesService } from './stages.service';
 import { CreateStageDto } from './dto/create-stage.dto';
 import { UpdateStageDto } from './dto/update-stage.dto';
@@ -44,7 +45,7 @@ export class StagesController {
 
   @Get()
   @ApiOperation({ summary: 'List all stages (paginated)' })
-  @ApiOkResponse({ type: StageResponseDto, isArray: true })
+  @ApiPaginatedResponse(StageResponseDto)
   findAll(
     @Query() query: PaginationQueryDto,
   ): Promise<PaginatedResponseDto<StageResponseDto>> {

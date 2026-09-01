@@ -1,5 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Wallet, WalletKind } from '../../entities/wallet.entity';
+import { TrustlineRequiredDto } from './trustline-required.dto';
 
 /**
  * A wallet in the caller's `GET /me/wallets` list. Shared by the export UI (TOV-40) and the multi-wallet
@@ -23,6 +24,13 @@ export class MeWalletDto {
   exported!: boolean;
   @ApiProperty({ description: 'When the wallet was bound to the Collector' })
   createdAt!: Date;
+
+  @ApiPropertyOptional({
+    type: TrustlineRequiredDto,
+    description:
+      'Present (byow add response only) when the wallet lacks the USDC trustline: a change_trust XDR to sign & submit (TOV-32).',
+  })
+  trustlineRequired?: TrustlineRequiredDto;
 
   static fromEntity(w: Wallet): MeWalletDto {
     const dto = new MeWalletDto();

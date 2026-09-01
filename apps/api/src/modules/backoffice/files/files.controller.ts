@@ -34,6 +34,7 @@ import { BackofficeGuard } from '@common/guards/backoffice.guard';
 import { BackofficeRequest } from '@common/interfaces/backoffice-request.interface';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '@common/dto/paginated-response.dto';
+import { ApiPaginatedResponse } from '@common/decorators/api-paginated-response.decorator';
 import { FilesService } from '@modules/files/files.service';
 import { CreateFileDto } from '@modules/files/dto/create-file.dto';
 import { UpdateFileDto } from '@modules/files/dto/update-file.dto';
@@ -52,7 +53,7 @@ export class FilesController {
 
   @Get()
   @ApiOperation({ summary: 'List all files (paginated)' })
-  @ApiOkResponse({ type: FileResponseDto, isArray: true })
+  @ApiPaginatedResponse(FileResponseDto)
   findAll(
     @Query() query: PaginationQueryDto,
   ): Promise<PaginatedResponseDto<FileResponseDto>> {

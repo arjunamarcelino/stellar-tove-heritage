@@ -1,17 +1,8 @@
-import { Entity, Column, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, Relation } from 'typeorm';
 import { BaseEntity } from '@common/entities/base.entity';
 import { ExportTokenKind, WalletExportItemStatus } from '../export-status.types';
+import { ledgerNumberTransformer } from '../../ledger-number.transformer';
 import { WalletExport } from './wallet-export.entity';
-
-/**
- * bigint <-> number transformer for ledger sequences. A Soroban ledger sequence is far below 2^53, so
- * `Number()` is precision-safe here (unlike `amount_scaled`, which stays a BigInt decimal string).
- * Shared by both ledger columns.
- */
-const ledgerNumberTransformer = {
-  to: (v: number | null): number | null => v,
-  from: (v: string | null): number | null => (v === null ? null : Number(v)),
-};
 
 /**
  * One holding to move in an export: a single-token transfer of the wallet's full balance of
@@ -27,7 +18,7 @@ export class WalletExportItem extends BaseEntity {
 
   @ManyToOne(() => WalletExport, (exp) => exp.items)
   @JoinColumn({ name: 'export_id' })
-  export!: WalletExport;
+  export!: Relation<WalletExport>;
 
   @Column({ name: 'token_contract', type: 'varchar', length: 56 })
   tokenContract!: string;

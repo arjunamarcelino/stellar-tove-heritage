@@ -11,4 +11,10 @@ export interface IPasskeyCredentialRepository {
   findByCredentialId(credentialId: string): Promise<PasskeyCredential | null>;
   /** Look up the ACTIVE passkey credential bound to a wallet (1:1). */
   findByWalletId(walletId: string): Promise<PasskeyCredential | null>;
+  /**
+   * Advance the stored WebAuthn signature counter after a successful assertion (clone/replay
+   * protection). No-op-safe: callers only persist when the new counter strictly increases
+   * (platform passkeys often stay at 0, so a write is skipped).
+   */
+  updateCounter(credentialId: string, counter: number): Promise<void>;
 }

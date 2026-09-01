@@ -87,6 +87,27 @@ describe('WalletsService Integration', () => {
     expect(await walletRepo.count({ where: { userId: user.id, isPrimary: true } })).toBe(1);
   });
 
+  describe('filterKnownActiveByowAddresses (TOV-243 #440)', () => {
+    const UNKNOWN = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H';
+
+    it('returns only live byow bindings; excludes soft-deleted and unknown keys', async () => {
+      const bound = await walletsService.findOrCreateForWallet(PUBLIC_KEY);
+      const removed = await walletsService.findOrCreateForWallet(OTHER_PUBLIC_KEY);
+      await dataSource.getRepository(Wallet).softDelete(removed.wallet.id);
+
+      const known = await walletsService.filterKnownActiveByowAddresses([PUBLIC_KEY, OTHER_PUBLIC_KEY, UNKNOWN]);
+      expect(known.has(PUBLIC_KEY)).toBe(true); // live binding
+      expect(known.has(OTHER_PUBLIC_KEY)).toBe(false); // soft-deleted
+      expect(known.has(UNKNOWN)).toBe(false); // never bound
+      expect(known.size).toBe(1);
+      expect(bound.wallet.kind).toBe('byow');
+    });
+
+    it('returns an empty set for an empty input (no query)', async () => {
+      expect((await walletsService.filterKnownActiveByowAddresses([])).size).toBe(0);
+    });
+  });
+
   describe('embedded-wallet-per-user invariant (review #110)', () => {
     const CONTRACT_A = 'CAZOVWDKGNPMSF7GJ3FKW7M7WGTQDUKDGC3VNVSN4TQYCXBHT53LHEZC';
     const CONTRACT_B = 'CDL5YRUNMPGJ42KQFDEKTJBTVBAQGKAGQRJ44DRFBJSMZMBBTACGAQYI';

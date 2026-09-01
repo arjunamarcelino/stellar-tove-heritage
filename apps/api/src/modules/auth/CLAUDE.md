@@ -44,6 +44,32 @@ Sibling of SEP-10 for **embedded** wallets. `PasskeyController` (`@Controller('a
 bound to the passkey's secp256r1 key. Coexists with email/password `/register` and SEP-10; a given
 email = one account, one auth method (collision → 409).
 
+### Unified email-first begin/finish (login + signup)
+
+`POST auth/passkey/begin` (200) + `auth/passkey/finish` (200) are the **email-first** surface the FE
+uses: the UI collects only an email, and the backend decides the ceremony. `begin` (`PasskeyBeginDto`
+= `{ email }`) returns `PasskeyBeginResponseDto { mode, options }`:
+- email has an embedded-passkey account → `mode:'login'` + `PublicKeyCredentialRequestOptionsJSON`
+  (authentication options, `allowCredentials` scoped to the user's stored credential) → FE calls
+  `navigator.credentials.get`.
+- brand-new email → `mode:'signup'` + `PublicKeyCredentialCreationOptionsJSON` → FE calls
+  `navigator.credentials.create`.
+- email registered by a **different** method (email/password, BYOW) → `409 AUTH_EMAIL_CONFLICT` (no
+  passkey to log in with, and the email is taken).
+
+`finish` (`PasskeyFinishDto` = `{ email, assertionResponse? | attestationResponse? }`) infers the mode
+from **which one field is present** (zero or both → generic `AUTH_PASSKEY_VERIFICATION_FAILED`, no
+oracle) and returns `PasskeyRegisterResponseDto { accessToken, refreshToken, contractAddress }` + sets
+the refresh cookie. **Always 200** for both (tokens are returned either way; the FE already knows the
+mode from `begin` — a dynamic 200/201 would fight Nest's metadata status under `@Res` passthrough).
+**Login** (`loginFinish`) verifies the assertion (`verifyAuthenticationResponse`) against the stored
+`PasskeyCredential` (public key + counter), resolved by the assertion's credential id and **owner-bound
+to the email**, verify-before-consume, then single-use `consumeByChallenge`, advances the signature
+counter only when it strictly increases (clone/replay; platform passkeys stay at 0), and issues tokens
+— **no chain call** (the wallet already exists). **Signup** delegates to the existing registration
+`finish` (deploy + bind). The legacy `register/begin`+`register/finish` remain (marked `deprecated` in
+Swagger) and share the same service internals (`registrationBegin`/`persistChallenge`).
+
 `PasskeyService` is a thin orchestrator (Sep10-altitude — holds no `DataSource`):
 
 1. **begin:** reject a taken email → generate WebAuthn options (**ES256/P-256 only**, `attestation:'none'`,
@@ -65,10 +91,19 @@ email = one account, one auth method (collision → 409).
 - `PasskeyChallenge` is ephemeral (mirrors `AuthChallenge`, distinct sweep advisory-lock key).
   `PasskeyCredential` belongs to the **wallets** aggregate (1:1 `Wallet`), not auth.
 - Relayer deploy is behind the `RELAYER_SERVICE` port (`src/modules/relayer/`); the Soroban adapter
-  invokes the real testnet **`FractionWalletFactory.deploy_wallet(wasm_hash, salt, [Signer::External(
+  invokes the real testnet **`tove-wallet-factory.deploy_wallet(salt, [Signer::External(
   webauthnVerifier, key_data)], {})`** (`key_data = secp256r1PubKey(65)‖rawCredentialId`,
   `salt = sha256(rawCredentialId)` — byte-identical to smart-account-kit so the FE derives the same
-  address). Submissions serialize per relayer account (one keypair = one sequence) and self-heal
+  address). The canonical wallet WASM hash is stored ON the factory (admin-pinned, `__constructor` /
+  `set_wasm_hash`), so it is **no longer a call argument**. `deploy_wallet` is **admin-gated**
+  (`admin.require_auth()`), satisfied **admin-as-source**: `RELAYER_FACTORY_ADMIN_SECRET` is BOTH the
+  deploy tx source/fee-payer AND signer, so its envelope signature covers `require_auth` — **no
+  `authorizeEntry`** (a separately-signed ed25519 admin auth entry is rejected on-chain as
+  `scecUnexpectedType`), mirroring the kyc-allowlist / offering-escrow adapters. Deploys serialize on
+  a dedicated `relayer:wallet-factory:account:<admin>` lock (the admin's own sequence); the admin
+  account must be XLM-funded. A config-gated (`RELAYER_BOOT_PROBE`) `onApplicationBootstrap` probe
+  asserts the admin account is funded + on-chain `factory.admin()` == the configured admin key (else
+  every deploy would revert `admin.require_auth()` after burning fees). Submissions self-heal
   idempotently: the wallet address is derived off-chain (factory-as-deployer contract-id preimage); a
   proactive existence check skips a redundant deploy, and on ANY deploy failure an on-chain
   `walletExists` re-check (`getLedgerEntries`) self-heals to the derived address only if the contract

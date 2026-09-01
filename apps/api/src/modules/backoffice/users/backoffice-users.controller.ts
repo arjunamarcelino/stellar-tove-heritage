@@ -26,10 +26,13 @@ import { AdminRole } from '@common/enums/admin-role.enum';
 import { BackofficeGuard } from '@common/guards/backoffice.guard';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '@common/dto/paginated-response.dto';
+import { ApiPaginatedResponse } from '@common/decorators/api-paginated-response.decorator';
 import { UsersService } from '@modules/users/users.service';
 import { CreateUserDto } from '@modules/users/dto/create-user.dto';
 import { UpdateUserDto } from '@modules/users/dto/update-user.dto';
 import { UserResponseDto } from '@modules/users/dto/user-response.dto';
+import { ProfileErasureService } from '@modules/users/profile/profile-erasure.service';
+import { BeneficiaryErasureService } from '@modules/users/beneficiary/beneficiary-erasure.service';
 
 @ApiTags('Backoffice Users')
 @Controller('users')
@@ -38,11 +41,15 @@ import { UserResponseDto } from '@modules/users/dto/user-response.dto';
 @UseGuards(BackofficeGuard)
 @AdminRoles(AdminRole.ADMIN, AdminRole.SUPERADMIN)
 export class BackofficeUsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly profileErasure: ProfileErasureService,
+    private readonly beneficiaryErasure: BeneficiaryErasureService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List all platform users (paginated)' })
-  @ApiOkResponse({ type: UserResponseDto, isArray: true })
+  @ApiPaginatedResponse(UserResponseDto)
   findAll(@Query() query: PaginationQueryDto): Promise<PaginatedResponseDto<UserResponseDto>> {
     return this.usersService.findAll(query.page, query.limit);
   }
@@ -72,7 +79,12 @@ export class BackofficeUsersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Soft-delete platform user' })
   @ApiNoContentResponse()
-  delete(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
-    return this.usersService.softDelete(id);
+  async delete(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.usersService.softDelete(id);
+    // Right-to-erasure (TOV-30 #414): purge the user's avatar — unpublish public copies now, soft-delete the
+    // image rows so the reaper reclaims the private blobs. Best-effort; never blocks the user delete.
+    await this.profileErasure.purgeForUser(id);
+    // Right-to-erasure (TOV-31 C1): hard-delete the user's beneficiary row (third-party PII). Best-effort.
+    await this.beneficiaryErasure.purgeForUser(id);
   }
 }

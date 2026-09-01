@@ -4,6 +4,9 @@ import { IdempotencyModule } from '@common/idempotency/idempotency.module';
 import { WalletsModule } from '../wallets.module';
 import { WalletsAuditModule } from '../audit/wallets-audit.module';
 import { WalletExportModule } from '../export/wallet-export.module';
+import { WalletRotationModule } from '../rotation/wallet-rotation.module';
+import { WALLET_TRUSTLINE_SERVICE } from '../wallet-trustline.service.interface';
+import { SorobanWalletTrustlineService } from '../soroban-wallet-trustline.service';
 import { MeWalletsService } from './me-wallets.service';
 import { MeWalletsController } from './me-wallets.controller';
 
@@ -18,8 +21,11 @@ import { MeWalletsController } from './me-wallets.controller';
  * `IdempotencyModule` for the `Idempotency-Key` on add.
  */
 @Module({
-  imports: [WalletsModule, WalletsAuditModule, AuthModule, IdempotencyModule, WalletExportModule],
+  imports: [WalletsModule, WalletsAuditModule, AuthModule, IdempotencyModule, WalletExportModule, WalletRotationModule],
   controllers: [MeWalletsController],
-  providers: [MeWalletsService],
+  providers: [
+    MeWalletsService,
+    { provide: WALLET_TRUSTLINE_SERVICE, useClass: SorobanWalletTrustlineService },
+  ],
 })
 export class PublicMeWalletsModule {}

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { ErrorCode } from '@common/enums/error-code.enum';
 import { failHttp } from '@common/http/fail-http';
@@ -9,8 +9,14 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { AUDIT_KIND } from '../audit/audit-log.types';
 import { WalletsService } from '../wallets.service';
 import { WalletMutationError, WalletMutationReason } from '../wallet-mutation.error';
+import { Wallet } from '../entities/wallet.entity';
+import {
+  WALLET_TRUSTLINE_SERVICE,
+  IWalletTrustlineService,
+} from '../wallet-trustline.service.interface';
 import { AddWalletDto } from './dto/add-wallet.dto';
 import { MeWalletDto } from './dto/me-wallet.dto';
+import { TrustlineRequiredDto } from './dto/trustline-required.dto';
 import { DeleteWalletResponseDto } from './dto/delete-wallet-response.dto';
 
 /**
@@ -39,6 +45,7 @@ export class MeWalletsService {
     private readonly walletsService: WalletsService,
     private readonly idempotency: IdempotencyStore,
     private readonly audit: AuditLogService,
+    @Inject(WALLET_TRUSTLINE_SERVICE) private readonly trustline: IWalletTrustlineService,
   ) {}
 
   /** Issue a challenge stamped with the caller's id, to be signed and submitted to {@link add}. */
@@ -77,19 +84,24 @@ export class MeWalletsService {
       return this.replay(userId, begin.body);
     }
 
+    let wallet: Wallet;
     try {
       const { publicKey, consume } = await this.sep10Service.verifyBindChallenge(
         dto.signedChallengeXdr,
         userId,
       );
-      const wallet = await this.walletsService.bindByowWalletToUser(userId, publicKey, consume);
-      await this.idempotency.complete(key, begin.token, { walletId: wallet.id });
-      return MeWalletDto.fromEntity(wallet);
+      wallet = await this.walletsService.bindByowWalletToUser(userId, publicKey, consume);
     } catch (err) {
       await this.idempotency.fail(key, begin.token);
       if (err instanceof WalletMutationError) throw this.mapMutationError(err);
       throw err; // SEP-10 UnauthorizedException (invalid/expired/foreign challenge) passes through
     }
+    // Record durable success BEFORE the best-effort trustline enrichment, and resolve the instruction
+    // OUTSIDE the fail()-guarded try: fail() after complete() DELETEs the completed record (same token),
+    // so a resolve/RPC throw here must be unable to reach it — else a retry re-runs the consumed
+    // challenge. The trustline adapter is total (never throws), so in practice this only 500s the body.
+    await this.idempotency.complete(key, begin.token, { walletId: wallet.id });
+    return this.buildAddResponse(wallet);
   }
 
   /**
@@ -175,7 +187,23 @@ export class MeWalletsService {
     const walletId = this.walletIdFrom(body);
     const wallet = walletId ? await this.walletsService.findOwnedWallet(userId, walletId) : null;
     if (!wallet) throw failHttp(ErrorCode.WALLET_NOT_FOUND, HttpStatus.NOT_FOUND, 'Wallet request failed');
-    return MeWalletDto.fromEntity(wallet);
+    return this.buildAddResponse(wallet);
+  }
+
+  /**
+   * Build the add/replay response DTO, enriching a byow wallet with a `trustlineRequired` instruction
+   * when the account lacks the USDC trustline (TOV-32). Resolved fresh on every call (fresh AND replay)
+   * so the seq=0 change_trust template is never a cached stale one. Does network I/O — hence not `toDto`.
+   * Embedded (contract) wallets never reach the port (kind gate), and list/primary/remove keep the pure
+   * `MeWalletDto.fromEntity`, so the field is an add-response-only concern.
+   */
+  private async buildAddResponse(wallet: Wallet): Promise<MeWalletDto> {
+    const dto = MeWalletDto.fromEntity(wallet);
+    if (wallet.kind === 'byow' && wallet.publicKey) {
+      const instruction = await this.trustline.resolveUsdcTrustline(wallet.publicKey);
+      if (instruction) dto.trustlineRequired = TrustlineRequiredDto.fromInstruction(instruction);
+    }
+    return dto;
   }
 
   private walletIdFrom(body: unknown): string | null {

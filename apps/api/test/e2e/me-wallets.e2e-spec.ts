@@ -6,27 +6,50 @@ import type { Server } from 'node:http';
 import { DataSource } from 'typeorm';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
-import { Keypair, TransactionBuilder } from '@stellar/stellar-sdk';
+import { Account, Asset, Keypair, Networks, Operation, TransactionBuilder } from '@stellar/stellar-sdk';
 import { AppModule } from '../../src/app.module';
 import { IdempotencyStore } from '../../src/common/idempotency/idempotency-store';
+import { WALLET_TRUSTLINE_SERVICE } from '../../src/modules/wallets/wallet-trustline.service.interface';
 import { truncateTables, noOpThrottlerStorage } from '../shared/helpers';
 import { InMemoryIdempotencyStore } from '../shared/in-memory-idempotency-store';
+import { FakeWalletTrustlineService } from '../shared/fake-wallet-trustline';
+
+const USDC_ISSUER = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+
+/** Build a real unsigned seq=0 change_trust XDR for `kp` (what the trustline port would emit). */
+function buildChangeTrustXdr(kp: Keypair): string {
+  const asset = new Asset('USDC', USDC_ISSUER);
+  return new TransactionBuilder(new Account(kp.publicKey(), '-1'), {
+    fee: '10000',
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(Operation.changeTrust({ asset }))
+    .setTimeout(300)
+    .build()
+    .toXDR();
+}
 
 interface ChallengeResponse {
   challengeTxXdr: string;
   networkPassphrase: string;
+}
+interface TrustlineRequired {
+  changeTrustXdr: string;
+  asset: { code: string; issuer: string };
 }
 interface MeWallet {
   id: string;
   kind: string;
   publicKey: string | null;
   isPrimary: boolean;
+  trustlineRequired?: TrustlineRequired;
 }
 
 describe('me/wallets multi-wallet binding (e2e)', () => {
   let app: INestApplication;
   let dataSource: DataSource;
   let server: Server;
+  const fakeTrustline = new FakeWalletTrustlineService();
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -36,6 +59,9 @@ describe('me/wallets multi-wallet binding (e2e)', () => {
       .useValue(noOpThrottlerStorage)
       .overrideProvider(IdempotencyStore)
       .useValue(new InMemoryIdempotencyStore())
+      // Override the on-chain trustline read so the suite never hits a live Soroban RPC.
+      .overrideProvider(WALLET_TRUSTLINE_SERVICE)
+      .useValue(fakeTrustline)
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -55,6 +81,7 @@ describe('me/wallets multi-wallet binding (e2e)', () => {
 
   beforeEach(async () => {
     await truncateTables(dataSource);
+    fakeTrustline.reset(); // default: port returns null → no trustlineRequired on add responses
   });
 
   function sign(challenge: ChallengeResponse, kp: Keypair): string {
@@ -129,6 +156,38 @@ describe('me/wallets multi-wallet binding (e2e)', () => {
     expect(wallets).toHaveLength(2);
     expect(wallets.filter((w) => w.isPrimary)).toHaveLength(1);
     expect(wallets.find((w) => w.publicKey === kp2.publicKey())?.isPrimary).toBe(false);
+  });
+
+  it('returns trustlineRequired with a change_trust XDR when the BYOW wallet lacks the USDC trustline (TOV-32)', async () => {
+    const { token } = await login();
+    const kp2 = Keypair.random();
+    const xdr = buildChangeTrustXdr(kp2);
+    fakeTrustline.instructions.set(kp2.publicKey(), {
+      changeTrustXdr: xdr,
+      asset: { code: 'USDC', issuer: USDC_ISSUER },
+    });
+
+    const add = await addWallet(token, await signedBindChallenge(token, kp2));
+    expect(add.status).toBe(201);
+    const body = add.body as MeWallet;
+    expect(body.trustlineRequired?.changeTrustXdr).toBe(xdr);
+    expect(body.trustlineRequired?.asset).toEqual({ code: 'USDC', issuer: USDC_ISSUER });
+    // The change_trust XDR is a real, decodable seq=0 template.
+    expect(TransactionBuilder.fromXDR(xdr, Networks.TESTNET).sequence).toBe('0');
+
+    // The add-response-only field never appears on the list.
+    const list = await listWallets(token);
+    for (const w of list.body as MeWallet[]) expect(w.trustlineRequired).toBeUndefined();
+  });
+
+  it('omits trustlineRequired when the account already trusts USDC (port → null)', async () => {
+    const { token } = await login();
+    const kp2 = Keypair.random();
+    fakeTrustline.instructions.set(kp2.publicKey(), null); // already trusts USDC
+
+    const add = await addWallet(token, await signedBindChallenge(token, kp2));
+    expect(add.status).toBe(201);
+    expect((add.body as MeWallet).trustlineRequired).toBeUndefined();
   });
 
   it('rejects binding a pubkey already bound to another Collector (409 WALLET_ALREADY_BOUND)', async () => {

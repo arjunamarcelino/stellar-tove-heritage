@@ -11,12 +11,12 @@ import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
-  ApiOkResponse,
   ApiCreatedResponse,
 } from '@nestjs/swagger';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { JwtPayload } from '@common/interfaces/jwt-payload.interface';
 import { PaginatedResponseDto } from '@common/dto/paginated-response.dto';
+import { ApiPaginatedResponse } from '@common/decorators/api-paginated-response.decorator';
 import { SubmissionsService } from './submissions.service';
 import { SubmitEvidenceDto } from './dto/submit-evidence.dto';
 import { SubmissionResponseDto } from './dto/submission-response.dto';
@@ -41,7 +41,7 @@ export class SubmissionsController {
 
   @Get('submissions')
   @ApiOperation({ summary: 'List own submissions' })
-  @ApiOkResponse({ type: SubmissionResponseDto, isArray: true })
+  @ApiPaginatedResponse(SubmissionResponseDto)
   findAll(
     @Query() query: SubmissionQueryDto,
     @CurrentUser() user: JwtPayload,

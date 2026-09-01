@@ -20,6 +20,7 @@ import { UserResponseDto } from '@modules/users/dto/user-response.dto';
 import { UsersService } from '@modules/users/users.service';
 import { UserStagesService } from '@modules/stages/stages.service';
 import { ProfileResponseDto } from './dto/profile-response.dto';
+import { ProfileViewService } from '@modules/users/profile/profile-view.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -33,6 +34,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     @Inject(jwtConfig.KEY)
     private readonly jwt: ConfigType<typeof jwtConfig>,
+    private readonly profileView: ProfileViewService,
   ) {}
 
   async register(dto: RegisterDto): Promise<{ accessToken: string; refreshToken: string }> {
@@ -123,11 +125,12 @@ export class AuthService {
   }
 
   async getProfile(userId: string): Promise<ProfileResponseDto> {
-    const [user, currentStage] = await Promise.all([
+    const [user, currentStage, profileView] = await Promise.all([
       this.usersService.findOneById(userId),
       this.userStagesService.getCurrentStage(userId),
+      this.profileView.buildForUser(userId),
     ]);
-    return ProfileResponseDto.create({ user, currentStage });
+    return ProfileResponseDto.create({ user, currentStage, profileView });
   }
 
   /**

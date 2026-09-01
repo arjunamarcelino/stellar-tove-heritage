@@ -11,7 +11,7 @@ import {
   fakeAddedByowWallet,
   fakeExportedByowWallet,
 } from '@/test/fixtures/walletExport';
-import type { WalletSummary } from '@/lib/types/api';
+import type { TrustlineStatus, WalletSummary } from '@/lib/types/api';
 
 // A primary BYOW wallet — the only shape that hits the "Primary wallet" trailing-text branch.
 // (fakePrimaryWallet is an EMBEDDED primary, which by the truth table renders the export CTA, so it
@@ -122,5 +122,66 @@ describe('WalletRow set-primary button', () => {
   it('disables the trailing button when isPending is true', () => {
     renderRow(fakeAddedByowWallet, true);
     expect(screen.getByRole('button', { name: /set .* as primary/i })).toBeDisabled();
+  });
+});
+
+// Folded from the former WalletRow.trustline.test.tsx (one-file-per-source convention). TOV-47.
+function renderRowTrustline(
+  wallet: WalletSummary,
+  trustlineStatus?: TrustlineStatus,
+  { withHandler = true } = {},
+) {
+  const onAddTrustline = vi.fn();
+  const utils = render(
+    <ul>
+      <WalletRow
+        wallet={wallet}
+        isPending={false}
+        onExport={vi.fn()}
+        onRemove={vi.fn()}
+        onSetPrimary={vi.fn()}
+        trustlineStatus={trustlineStatus}
+        onAddTrustline={withHandler ? onAddTrustline : undefined}
+      />
+    </ul>,
+  );
+  return { ...utils, onAddTrustline };
+}
+
+describe('WalletRow — trustline badge + CTA (TOV-47)', () => {
+  it('shows the "needed" badge + CTA for a BYOW wallet missing the trustline; CTA calls onAddTrustline', async () => {
+    const user = userEvent.setup();
+    const { onAddTrustline } = renderRowTrustline(fakeAddedByowWallet, 'missing');
+    expect(screen.getByText('USDC trustline needed')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /add usdc trustline/i }));
+    expect(onAddTrustline).toHaveBeenCalledWith(fakeAddedByowWallet);
+  });
+
+  it('treats unfunded the same as missing (badge + CTA)', () => {
+    renderRowTrustline(fakeAddedByowWallet, 'unfunded');
+    expect(screen.getByText('USDC trustline needed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add usdc trustline/i })).toBeInTheDocument();
+  });
+
+  it('shows a neutral "check unavailable" badge with NO CTA for unavailable/unknown', () => {
+    renderRowTrustline(fakeAddedByowWallet, 'unavailable');
+    expect(screen.getByText('USDC check unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add usdc trustline/i })).not.toBeInTheDocument();
+  });
+
+  it('renders no badge when the wallet already trusts USDC (active)', () => {
+    renderRowTrustline(fakeAddedByowWallet, 'active');
+    expect(screen.queryByText(/USDC/i)).not.toBeInTheDocument();
+  });
+
+  it('renders no badge while the status is still streaming (undefined)', () => {
+    renderRowTrustline(fakeAddedByowWallet, undefined);
+    expect(screen.queryByText(/USDC/i)).not.toBeInTheDocument();
+  });
+
+  it('never shows a trustline badge/CTA for an embedded wallet', () => {
+    renderRowTrustline(fakeEmbeddedWallet, 'missing');
+    expect(screen.queryByText(/USDC trustline needed/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add usdc trustline/i })).not.toBeInTheDocument();
   });
 });

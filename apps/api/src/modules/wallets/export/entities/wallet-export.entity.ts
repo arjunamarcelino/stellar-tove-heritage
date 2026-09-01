@@ -1,4 +1,4 @@
-import { Entity, Column, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, Column, ManyToOne, JoinColumn, OneToMany, Relation } from 'typeorm';
 import { BaseEntity } from '@common/entities/base.entity';
 import { Wallet } from '../../entities/wallet.entity';
 import { WalletExportStatus } from '../export-status.types';
@@ -32,5 +32,5 @@ export class WalletExport extends BaseEntity {
   completedAt!: Date | null;
 
   @OneToMany(() => WalletExportItem, (item) => item.export)
-  items!: WalletExportItem[];
+  items!: Relation<WalletExportItem[]>;
 }

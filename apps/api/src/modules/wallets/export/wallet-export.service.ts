@@ -1,5 +1,7 @@
 import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
 import { relayerConfig } from '@config/relayer.config';
 import { webauthnConfig } from '@config/webauthn.config';
 import { ErrorCode } from '@common/enums/error-code.enum';
@@ -46,6 +48,7 @@ import { AUDIT_KIND, AuditKind } from '../audit/audit-log.types';
 import { canonicalizeStellarAddress, isStellarAccountAddress } from './stellar-address.util';
 import { WalletExport } from './entities/wallet-export.entity';
 import { WalletExportItem } from './entities/wallet-export-item.entity';
+import { WalletRotationTransfer } from '../rotation/entities/wallet-rotation-transfer.entity';
 import { ExportTokenKind, WalletExportStatus } from './export-status.types';
 import { ExportWalletDto } from './dto/export-wallet.dto';
 import { ExportItemDto, ExportWalletResponseDto } from './dto/export-wallet-response.dto';
@@ -69,6 +72,7 @@ export class WalletExportService {
     @Inject(webauthnConfig.KEY) private readonly webauthn: ConfigType<typeof webauthnConfig>,
     @Inject(RELAYER_SERVICE) private readonly relayer: IRelayerService,
     @Inject(WALLET_EXPORT_REPOSITORY) private readonly exportRepo: IWalletExportRepository,
+    @InjectRepository(WalletRotationTransfer) private readonly rotationsRepo: Repository<WalletRotationTransfer>,
     private readonly walletsService: WalletsService,
     private readonly kyc: KycAllowlistService,
     private readonly audit: AuditLogService,
@@ -77,6 +81,14 @@ export class WalletExportService {
   /** Initiate or resume an export: validate, snapshot holdings, and return per-holding builds to sign. */
   async initiate(userId: string, walletId: string, dto: ExportWalletDto): Promise<ExportWalletResponseDto> {
     const { credential, contract: walletContract } = await this.resolveExportWallet(userId, walletId);
+
+    // Cross-feature guard (todo 431): refuse if an ACTIVE rotation is draining this wallet — both would move the
+    // same balance to different destinations. The reciprocal (active export blocks a new rotation) lives in
+    // WalletRotationService. Table-level read (not a service call) keeps the two features free of a module cycle.
+    const activeRotation = await this.rotationsRepo.findOne({
+      where: { sourceWalletId: walletId, status: In(['pending', 'submitting']) },
+    });
+    if (activeRotation) throw this.fail(ErrorCode.ROTATION_CONFLICT, HttpStatus.CONFLICT);
 
     // Target policy: canonical, self-custody G-address, not the caller's own wallet.
     let target: string;

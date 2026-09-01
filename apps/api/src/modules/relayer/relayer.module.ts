@@ -16,6 +16,9 @@ import { RedisRelayerAccountLock } from './redis-relayer-account-lock';
     { provide: RELAYER_SERVICE, useClass: SorobanRelayerService },
     { provide: RELAYER_ACCOUNT_LOCK, useClass: RedisRelayerAccountLock },
   ],
-  exports: [RELAYER_SERVICE],
+  // RELAYER_ACCOUNT_LOCK is exported so the fractionalization deploy service (TOV-233) reuses the same
+  // Redis-backed lock provider under its own key (`relayer:fraction:account`) — one connection, keyed
+  // serialization per relayer account.
+  exports: [RELAYER_SERVICE, RELAYER_ACCOUNT_LOCK],
 })
 export class RelayerModule {}

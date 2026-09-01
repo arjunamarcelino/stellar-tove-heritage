@@ -6,6 +6,7 @@ import { WalletMutationError } from '../../../../src/modules/wallets/wallet-muta
 import { ErrorCode } from '../../../../src/common/enums/error-code.enum';
 import { AUDIT_KIND } from '../../../../src/modules/wallets/audit/audit-log.types';
 import { InMemoryIdempotencyStore } from '../../../shared/in-memory-idempotency-store';
+import { FakeWalletTrustlineService } from '../../../shared/fake-wallet-trustline';
 import type { Wallet } from '../../../../src/modules/wallets/entities/wallet.entity';
 import type { Sep10Service } from '../../../../src/modules/auth/sep10.service';
 import type {
@@ -65,7 +66,13 @@ describe('MeWalletsService', () => {
   };
   let audit: { record: ReturnType<typeof vi.fn> };
   let idempotency: InMemoryIdempotencyStore;
+  let trustline: FakeWalletTrustlineService;
   let service: MeWalletsService;
+
+  const TRUSTLINE_INSTRUCTION = {
+    changeTrustXdr: 'AAAA-change-trust-xdr',
+    asset: { code: 'USDC', issuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5' },
+  };
 
   beforeEach(() => {
     const consume = vi.fn();
@@ -87,11 +94,13 @@ describe('MeWalletsService', () => {
     };
     audit = { record: vi.fn().mockResolvedValue(undefined) };
     idempotency = new InMemoryIdempotencyStore();
+    trustline = new FakeWalletTrustlineService();
     service = new MeWalletsService(
       sep10 as unknown as Sep10Service,
       wallets as unknown as WalletsService,
       idempotency as unknown as IdempotencyStore,
       audit as unknown as AuditLogService,
+      trustline,
     );
   });
 
@@ -110,6 +119,40 @@ describe('MeWalletsService', () => {
       expect(wallets.bindByowWalletToUser).toHaveBeenCalledOnce();
       expect(dto.id).toBe('wallet-1');
       expect(dto.isPrimary).toBe(false);
+    });
+
+    it('attaches trustlineRequired when the byow wallet lacks the USDC trustline (TOV-32)', async () => {
+      trustline.instructions.set('GAAA', TRUSTLINE_INSTRUCTION);
+      const dto = await service.add(USER, IDEM, { signedChallengeXdr: XDR });
+      expect(dto.trustlineRequired).toEqual(TRUSTLINE_INSTRUCTION);
+      expect(trustline.calls).toBe(1);
+    });
+
+    it('omits trustlineRequired when the account already trusts USDC (port → null)', async () => {
+      trustline.instructions.set('GAAA', null);
+      const dto = await service.add(USER, IDEM, { signedChallengeXdr: XDR });
+      expect(dto.trustlineRequired).toBeUndefined();
+    });
+
+    it('re-resolves the instruction on replay (fresh, never cached)', async () => {
+      trustline.instructions.set('GAAA', TRUSTLINE_INSTRUCTION);
+      await service.add(USER, IDEM, { signedChallengeXdr: XDR });
+      const replay = await service.add(USER, IDEM, { signedChallengeXdr: XDR });
+      expect(replay.trustlineRequired).toEqual(TRUSTLINE_INSTRUCTION);
+      expect(trustline.calls).toBe(2); // resolved on BOTH the fresh call and the replay
+      expect(wallets.bindByowWalletToUser).toHaveBeenCalledOnce(); // but bound only once
+    });
+
+    it('a throwing trustline port after complete() does NOT corrupt idempotency (P1 guard)', async () => {
+      trustline.error = new Error('rpc down'); // the resolve runs AFTER complete() — must not reach fail()
+      await expect(service.add(USER, IDEM, { signedChallengeXdr: XDR })).rejects.toThrow('rpc down');
+      // The completed record survives: a retry replays the bound wallet WITHOUT re-running the
+      // (single-use) SEP-10 challenge — i.e. fail() did not delete the record.
+      trustline.error = null;
+      const retry = await service.add(USER, IDEM, { signedChallengeXdr: XDR });
+      expect(retry.id).toBe('wallet-1');
+      expect(wallets.bindByowWalletToUser).toHaveBeenCalledOnce();
+      expect(wallets.findOwnedWallet).toHaveBeenCalledWith(USER, 'wallet-1'); // replay path
     });
 
     it('replays the stored result on a same-key + same-body retry (no re-bind)', async () => {
@@ -202,6 +245,12 @@ describe('MeWalletsService', () => {
       expect(wallets.setPrimaryWallet).toHaveBeenCalledWith(USER, 'wallet-1', expect.any(Function));
       expect(dto.id).toBe('wallet-1');
       expect(dto.isPrimary).toBe(true);
+    });
+
+    it('never resolves a trustline (add-response-only field)', async () => {
+      const dto = await service.setPrimary(USER, 'wallet-1');
+      expect(dto.trustlineRequired).toBeUndefined();
+      expect(trustline.calls).toBe(0);
     });
 
     it('records a PRIMARY_CHANGED audit row (reason user) on a real change', async () => {

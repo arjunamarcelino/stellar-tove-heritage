@@ -4,16 +4,24 @@ import { InMemoryRelayerAccountLock } from '../../../../src/modules/relayer/in-m
 
 // --- controllable @stellar/stellar-sdk mock --------------------------------
 const mockGetAccount = vi.fn();
-const mockPrepare = vi.fn();
+const mockSimulate = vi.fn();
+const mockGetLatestLedger = vi.fn();
 const mockSend = vi.fn();
 const mockGetTx = vi.fn();
 const mockGetLedgerEntries = vi.fn();
+const mockAuthorizeEntry = vi.fn();
 const contractCalls: { id: string; method: string; args: unknown[] }[] = [];
+
+// A source-account credential entry — covered by the admin's envelope signature (admin-as-source).
+const sourceEntry = () => ({
+  credentials: () => ({ switch: () => ({ name: 'sorobanCredentialsSourceAccount' }) }),
+});
 
 vi.mock('@stellar/stellar-sdk', () => {
   class Server {
     getAccount = mockGetAccount;
-    prepareTransaction = mockPrepare;
+    simulateTransaction = mockSimulate;
+    getLatestLedger = mockGetLatestLedger;
     sendTransaction = mockSend;
     getTransaction = mockGetTx;
     getLedgerEntries = mockGetLedgerEntries;
@@ -40,13 +48,34 @@ vi.mock('@stellar/stellar-sdk', () => {
   return {
     rpc: {
       Server,
-      Api: { GetTransactionStatus: { NOT_FOUND: 'NOT_FOUND', SUCCESS: 'SUCCESS', FAILED: 'FAILED' } },
+      Api: {
+        GetTransactionStatus: { NOT_FOUND: 'NOT_FOUND', SUCCESS: 'SUCCESS', FAILED: 'FAILED' },
+        isSimulationError: (sim: { error?: unknown }) => Boolean(sim?.error),
+      },
+      // Assemble → a prepared tx exposing operations[0] + sign().
+      assembleTransaction: () => ({
+        build: () => ({ operations: [{}], sign: vi.fn() }),
+      }),
     },
-    Keypair: { fromSecret: () => ({ publicKey: () => 'GRELAYER', sign: () => undefined }) },
+    // pubkey derived from the secret so admin-vs-source can be distinguished in tests.
+    Keypair: {
+      fromSecret: (s: string) => ({
+        publicKey: () => (String(s).startsWith('SADMIN') ? 'GADMIN' : 'GRELAYER'),
+        sign: () => undefined,
+      }),
+    },
+    authorizeEntry: (entry: unknown, ...rest: unknown[]) => {
+      mockAuthorizeEntry(entry, ...rest);
+      return { _signed: true, entry };
+    },
+    Operation: {},
     Contract,
     Address: {
       fromString: (s: string) => ({ toScVal: () => scv('addr', s), toScAddress: () => ({ _sc: s }) }),
-      fromScAddress: () => ({ toBuffer: () => Buffer.alloc(32, 1) }),
+      fromScAddress: (v: { _g?: string }) => ({
+        toBuffer: () => Buffer.alloc(32, 1),
+        toString: () => v?._g ?? 'GUNKNOWN',
+      }),
     },
     TransactionBuilder,
     StrKey: { encodeContract: () => 'CDEPLOYEDADDRESS' },
@@ -80,6 +109,10 @@ const cfg = {
   rpcUrl: 'https://soroban-testnet.stellar.org',
   networkPassphrase: 'Test SDF Network ; September 2015',
   relayerSecret: 'S'.repeat(56),
+  // Admin == source by default (both derive 'GRELAYER'), so the base tests need no admin auth entry.
+  factoryAdminSecret: 'S'.repeat(56),
+  factoryAdminPublicKey: 'GRELAYER',
+  probeOnBoot: false,
   walletWasmHash: 'ab'.repeat(32),
   factoryAddress: 'C'.repeat(56),
   webauthnVerifierAddress: 'C'.repeat(56),
@@ -106,19 +139,41 @@ describe('SorobanRelayerService', () => {
       .mockResolvedValue(undefined);
     mockGetLedgerEntries.mockResolvedValue({ entries: [] }); // wallet does not exist yet
     mockGetAccount.mockResolvedValue({ accountId: () => 'GRELAYER' });
-    mockPrepare.mockResolvedValue({ sign: vi.fn() });
+    mockSimulate.mockResolvedValue({ result: { auth: [] } }); // healthy sim, no auth entries
+    mockGetLatestLedger.mockResolvedValue({ sequence: 1000 });
     mockSend.mockResolvedValue({ status: 'PENDING', hash: 'txhash-1' });
     mockGetTx.mockResolvedValue(successResp);
   });
 
-  it('deploys via the factory: invokes deploy_wallet(4 args) and returns the C-address', async () => {
+  it('deploys via the factory: invokes deploy_wallet(3 args, no wasm_hash) and returns the C-address', async () => {
     const result = await makeSvc().deployPasskeyWallet(input);
 
     expect(result).toEqual({ contractAddress: 'CDEPLOYEDADDRESS', txHash: 'txhash-1' });
     expect(contractCalls).toHaveLength(1);
     expect(contractCalls[0].method).toBe('deploy_wallet');
-    expect(contractCalls[0].args).toHaveLength(4); // wasm_hash, salt, signers, policies
+    // The factory stores the wallet WASM hash internally; the call passes only salt, signers, policies.
+    expect(contractCalls[0].args).toHaveLength(3);
     expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('admin-as-source: sources from the factory-admin account and never uses authorizeEntry', async () => {
+    // require_auth() is covered by the admin's envelope signature; a separately-signed ed25519 admin
+    // entry is rejected on-chain (scecUnexpectedType), so authorizeEntry must never be called.
+    mockSimulate.mockResolvedValue({ result: { auth: [sourceEntry()] } });
+    const result = await makeSvc({ factoryAdminSecret: 'SADMIN' + 'S'.repeat(50) }).deployPasskeyWallet(
+      input,
+    );
+
+    expect(result).toEqual({ contractAddress: 'CDEPLOYEDADDRESS', txHash: 'txhash-1' });
+    expect(mockAuthorizeEntry).not.toHaveBeenCalled();
+    // The lock/serialization is keyed on the admin account (its sequence), and getAccount reads it.
+    expect(contractCalls[0].method).toBe('deploy_wallet');
+  });
+
+  it('throws when deploy_wallet simulation reverts (isSimulationError) and the wallet is absent', async () => {
+    mockSimulate.mockResolvedValue({ error: 'Error(Contract, #7)' });
+    await expect(makeSvc().deployPasskeyWallet(input)).rejects.toThrow(/simulation failed/);
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
   it('existence check: skips the deploy when the wallet already exists (sequential self-heal)', async () => {
@@ -129,8 +184,8 @@ describe('SorobanRelayerService', () => {
     expect(contractCalls).toHaveLength(0);
   });
 
-  it('self-heals a prepare/simulate revert when the wallet now exists on-chain (re-check, not error text)', async () => {
-    mockPrepare.mockRejectedValue(new Error('HostError: Error(Storage, ExistingValue)'));
+  it('self-heals a simulate revert when the wallet now exists on-chain (re-check, not error text)', async () => {
+    mockSimulate.mockRejectedValue(new Error('HostError: Error(Storage, ExistingValue)'));
     mockGetLedgerEntries
       .mockResolvedValueOnce({ entries: [] }) // initial existence check → proceed to deploy
       .mockResolvedValue({ entries: [{ present: true }] }); // re-check after failure → self-heal

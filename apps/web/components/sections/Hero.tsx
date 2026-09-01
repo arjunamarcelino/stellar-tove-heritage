@@ -2,11 +2,17 @@ import Image from 'next/image';
 import VideoBackground from '@/components/ui/VideoBackground';
 
 interface HeroProps {
-  firstName: string;
-  lastName: string;
+  firstName: string | null;
+  lastName: string | null;
 }
 
 export default function Hero({ firstName, lastName }: HeroProps) {
+  // Passkey users may not have a name yet — fall back to a plain greeting instead of "null null.".
+  const fullName = [firstName, lastName]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <section
       className="relative flex h-dvh items-center overflow-hidden bg-ink"
@@ -20,9 +26,15 @@ export default function Hero({ firstName, lastName }: HeroProps) {
             id="hero-heading"
             className="font-heading text-4xl font-medium leading-tight text-parchment sm:text-5xl lg:text-6xl"
           >
-            Welcome
-            <br />
-            {firstName} {lastName}.
+            {fullName ? (
+              <>
+                Welcome
+                <br />
+                {fullName}.
+              </>
+            ) : (
+              <>Welcome.</>
+            )}
           </h1>
           <p className="mt-4 max-w-md font-body text-sm leading-relaxed text-parchment/60">
             We will introduce you to our demo application and its ecosystem experience.
@@ -37,6 +49,7 @@ export default function Hero({ firstName, lastName }: HeroProps) {
               alt="Andy Warhol, Jean-Michel Basquiat, and Keith Haring"
               fill
               priority
+              sizes="(min-width: 640px) 320px, 256px"
               className="object-cover"
             />
           </div>

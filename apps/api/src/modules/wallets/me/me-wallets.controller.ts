@@ -21,6 +21,15 @@ import { SubmitExportDto } from '../export/dto/submit-export.dto';
 import { SubmitExportResponseDto } from '../export/dto/submit-export-response.dto';
 import { ExportStatusResponseDto } from '../export/dto/export-status-response.dto';
 import { WalletExportService } from '../export/wallet-export.service';
+import { WalletRotationService } from '../rotation/wallet-rotation.service';
+import { RotateTransferDto } from '../rotation/dto/rotate-transfer.dto';
+import { RotateTransferResponseDto } from '../rotation/dto/rotate-transfer-response.dto';
+import { SubmitRotateTransferDto } from '../rotation/dto/submit-rotate-transfer.dto';
+import { SubmitRotateTransferResponseDto } from '../rotation/dto/submit-rotate-transfer-response.dto';
+import {
+  CancelRotateTransferResponseDto,
+  RotateTransferStatusResponseDto,
+} from '../rotation/dto/rotate-transfer-status-response.dto';
 import { MeWalletDto } from './dto/me-wallet.dto';
 import { DeleteWalletResponseDto } from './dto/delete-wallet-response.dto';
 import { AddWalletDto } from './dto/add-wallet.dto';
@@ -40,6 +49,7 @@ import { MeWalletsService } from './me-wallets.service';
 export class MeWalletsController {
   constructor(
     private readonly exportService: WalletExportService,
+    private readonly rotationService: WalletRotationService,
     private readonly walletsService: WalletsService,
     private readonly meWalletsService: MeWalletsService,
   ) {}
@@ -132,5 +142,52 @@ export class MeWalletsController {
     @Param('id', ParseUUIDPipe) walletId: string,
   ): Promise<ExportStatusResponseDto> {
     return this.exportService.status(userId, walletId);
+  }
+
+  @Post(':id/rotate-transfer')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @ApiOperation({
+    summary: 'Initiate/resume a rotation: transfer all fraction holdings from the source (:id) to a BYOW primary',
+  })
+  rotateInitiate(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) walletId: string,
+    @Body() dto: RotateTransferDto,
+  ): Promise<RotateTransferResponseDto> {
+    return this.rotationService.initiate(userId, walletId, dto);
+  }
+
+  @Post(':id/rotate-transfer/submit')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @ApiOperation({ summary: 'Submit signed assertions for the rotation holdings (verified server-side)' })
+  rotateSubmit(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) walletId: string,
+    @Body() dto: SubmitRotateTransferDto,
+  ): Promise<SubmitRotateTransferResponseDto> {
+    return this.rotationService.submit(userId, walletId, dto);
+  }
+
+  @Get(':id/rotate-transfer/status')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  @ApiOperation({ summary: 'Reconciliation status for the rotation (explicit pending/submitting state)' })
+  rotateStatus(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) walletId: string,
+  ): Promise<RotateTransferStatusResponseDto> {
+    return this.rotationService.status(userId, walletId);
+  }
+
+  @Delete(':id/rotate-transfer')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @ApiOperation({ summary: 'Cancel an active rotation (clears the latch) when no transfer is in-flight/confirmed' })
+  rotateCancel(
+    @CurrentUser('sub') userId: string,
+    @Param('id', ParseUUIDPipe) walletId: string,
+  ): Promise<CancelRotateTransferResponseDto> {
+    return this.rotationService.cancel(userId, walletId);
   }
 }

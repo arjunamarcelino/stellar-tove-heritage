@@ -21,6 +21,7 @@ import { AdminRole } from '@common/enums/admin-role.enum';
 import { BackofficeGuard } from '@common/guards/backoffice.guard';
 import { BackofficeRequest } from '@common/interfaces/backoffice-request.interface';
 import { PaginatedResponseDto } from '@common/dto/paginated-response.dto';
+import { ApiPaginatedResponse } from '@common/decorators/api-paginated-response.decorator';
 import { SubmissionResponseDto } from '../../submissions/dto/submission-response.dto';
 import { BackofficeSubmissionsService } from './submissions.service';
 import { ReviewSubmissionDto } from './dto/review-submission.dto';
@@ -37,7 +38,7 @@ export class BackofficeSubmissionsController {
 
   @Get()
   @ApiOperation({ summary: 'List submissions (filterable)' })
-  @ApiOkResponse({ type: SubmissionResponseDto, isArray: true })
+  @ApiPaginatedResponse(SubmissionResponseDto)
   findAll(
     @Query() query: SubmissionFilterDto,
   ): Promise<PaginatedResponseDto<SubmissionResponseDto>> {

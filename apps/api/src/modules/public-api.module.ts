@@ -11,7 +11,18 @@ import { ArtistsModule } from '@modules/artists/artists.module';
 import { PublicWalletTransferModule } from '@modules/wallets/transfer/public-wallet-transfer.module';
 import { PublicMeWalletsModule } from '@modules/wallets/me/public-me-wallets.module';
 import { PublicHandleModule } from '@modules/users/handle/public-handle.module';
+import { PublicProfileModule } from '@modules/users/profile/public-profile.module';
+import { PublicBeneficiaryModule } from '@modules/users/beneficiary/public-beneficiary.module';
 import { CollectorsModule } from '@modules/collectors/collectors.module';
+import { PublicKycModule } from '@modules/kyc/kyc.module';
+import { PublicMeHoldingsModule } from '@modules/fractionalization/me/public-me-holdings.module';
+import { PublicOfferingBidsModule } from '@modules/offerings/bids/public-offering-bids.module';
+import { PublicRfqsModule } from '@modules/marketplace/rfqs/public-rfqs.module';
+import { PublicRfqDetailModule } from '@modules/marketplace/rfqs/detail/public-rfq-detail.module';
+import { PublicQuotesModule } from '@modules/marketplace/quotes/public-quotes.module';
+import { PublicSettlementModule } from '@modules/marketplace/settlement/accept/public-settlement.module';
+import { PublicMeNotificationsModule } from '@modules/marketplace/notifications/public-me-notifications.module';
+import { PublicTimelineModule } from '@modules/timeline/public-timeline.module';
 
 /**
  * Leaf modules whose controllers are served under the public prefix
@@ -29,7 +40,18 @@ export const PUBLIC_MODULES = [
   PublicWalletTransferModule,
   PublicMeWalletsModule,
   PublicHandleModule,
+  PublicProfileModule,
+  PublicBeneficiaryModule,
   CollectorsModule,
+  PublicKycModule,
+  PublicMeHoldingsModule,
+  PublicOfferingBidsModule,
+  PublicRfqsModule,
+  PublicRfqDetailModule,
+  PublicQuotesModule,
+  PublicSettlementModule,
+  PublicMeNotificationsModule,
+  PublicTimelineModule,
 ] as const;
 
 @Module({

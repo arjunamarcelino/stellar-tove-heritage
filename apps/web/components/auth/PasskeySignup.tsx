@@ -2,12 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import type { FormEvent } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { usePasskeyEnroll } from '@/hooks/usePasskeyEnroll';
 import { detectPasskeySupport } from '@/lib/webauthn/passkey';
 import { useWalletConnect } from '@/hooks/useWalletConnect';
 import WalletConnectDialog from '@/components/wallet/WalletConnectDialog';
+import Spinner from '@/components/ui/Spinner';
 import {
   AUTH_INPUT_CLASS,
   AUTH_PRIMARY_BUTTON_CLASS,
@@ -16,10 +15,8 @@ import {
 import { truncateAddress, explorerContractUrl } from '@/lib/wallet/format';
 import type { PasskeyEnrollState, PasskeyErrorCode } from '@/lib/types/api';
 
-// Terminal codes that should route the user to sign in rather than retry (plan Edge Cases #1/#2).
-const SIGN_IN_CODES = new Set<PasskeyErrorCode>(['EMAIL_CONFLICT', 'PASSKEY_ALREADY_BOUND']);
-// Codes with no "Try again" affordance: sign-in cases, unsupported, and validation (user edits the
-// email and resubmits the form instead).
+// Codes with no "Try again" affordance: the email/passkey is bound elsewhere, passkeys are
+// unsupported, or the input was invalid (the user edits the email and resubmits the form instead).
 const NON_RETRYABLE = new Set<PasskeyErrorCode>([
   'EMAIL_CONFLICT',
   'PASSKEY_ALREADY_BOUND',
@@ -34,14 +31,23 @@ function progressCopy(status: PasskeyEnrollState['status']): string {
     case 'signing':
       return 'Waiting for Face ID, Touch ID, or your device passkey…';
     case 'finishing':
-      return 'Creating your wallet…';
+      return 'Finishing up…';
     default:
       return '';
   }
 }
 
+// Unified email-first passkey surface: one email field drives both login and signup — the backend
+// decides which, and the hook runs the matching WebAuthn ceremony. Rendered on /login.
+// Auth lands on '/' via a HARD navigation (window.location), not the client router. The finish
+// action set the httpOnly auth cookies server-side; a client-side router.replace can render the
+// cookie-gated '/' before it sees them and bounce back to /login. A full-page request to '/'
+// always carries the fresh cookies — the same guarantee the old server-redirect login had.
+function goToApp() {
+  window.location.assign('/');
+}
+
 export default function PasskeySignup() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [support, setSupport] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
@@ -67,6 +73,14 @@ export default function PasskeySignup() {
     };
   }, []);
 
+  // A returning login has no wallet to reveal — send them straight into the app. A fresh signup
+  // instead pauses on the wallet-reveal card below (continues on a click).
+  useEffect(() => {
+    if (state.status === 'success' && state.mode === 'login') {
+      goToApp();
+    }
+  }, [state]);
+
   const busy =
     state.status === 'beginning' || state.status === 'signing' || state.status === 'finishing';
 
@@ -86,8 +100,18 @@ export default function PasskeySignup() {
     }
   };
 
-  // Success — show the deployed wallet address; the user continues when ready (cookies are already
-  // set, so navigating home lands authenticated).
+  // Login success redirects itself via the effect above — render a brief transition, not the card.
+  if (state.status === 'success' && state.mode === 'login') {
+    return (
+      <div className="mt-8 flex items-center justify-center py-6" role="status" aria-live="polite">
+        <Spinner size="sm" className="border-white/20 border-t-white/60" />
+        <span className="sr-only">Signing you in…</span>
+      </div>
+    );
+  }
+
+  // Signup success — reveal the freshly deployed wallet address; the user continues when ready
+  // (cookies are already set, so navigating home lands authenticated).
   if (state.status === 'success') {
     return (
       <div
@@ -124,11 +148,7 @@ export default function PasskeySignup() {
           Your wallet is yours — Tove cannot move funds without your passkey.
         </p>
 
-        <button
-          type="button"
-          onClick={() => router.replace('/')}
-          className={`${AUTH_PRIMARY_BUTTON_CLASS} mt-5`}
-        >
+        <button type="button" onClick={goToApp} className={`${AUTH_PRIMARY_BUTTON_CLASS} mt-5`}>
           Continue to Tove
         </button>
       </div>
@@ -145,7 +165,7 @@ export default function PasskeySignup() {
       {/* Capability pending — neutral placeholder, no CTA flash. */}
       {support === null && (
         <div className="flex items-center justify-center py-6" aria-hidden="true">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+          <Spinner size="sm" className="border-white/20 border-t-white/60" />
         </div>
       )}
 
@@ -193,14 +213,6 @@ export default function PasskeySignup() {
               role="alert"
             >
               <p className="text-sm text-red-400">{state.message}</p>
-              {SIGN_IN_CODES.has(state.code) && (
-                <Link
-                  href="/login"
-                  className="mt-2 inline-block text-sm text-sienna underline hover:text-ochre"
-                >
-                  Sign in instead
-                </Link>
-              )}
               {!NON_RETRYABLE.has(state.code) && (
                 <button
                   type="button"
@@ -214,7 +226,7 @@ export default function PasskeySignup() {
           )}
 
           <button type="submit" disabled={busy} className={AUTH_PRIMARY_BUTTON_CLASS}>
-            {busy ? progressCopy(state.status) : 'Create account with passkey'}
+            {busy ? progressCopy(state.status) : 'Continue with passkey'}
           </button>
         </form>
       )}

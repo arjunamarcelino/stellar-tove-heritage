@@ -6,6 +6,7 @@ import { WalletsAuditModule } from '../audit/wallets-audit.module';
 import { FractionKycAllowlist } from './entities/fraction-kyc-allowlist.entity';
 import { WalletExport } from './entities/wallet-export.entity';
 import { WalletExportItem } from './entities/wallet-export-item.entity';
+import { WalletRotationTransfer } from '../rotation/entities/wallet-rotation-transfer.entity';
 import { KYC_ALLOWLIST_REPOSITORY } from './repositories/kyc-allowlist-repository.interface';
 import { KycAllowlistRepository } from './repositories/kyc-allowlist.repository';
 import { WALLET_EXPORT_REPOSITORY } from './repositories/wallet-export-repository.interface';
@@ -27,7 +28,7 @@ import { WalletExportService } from './wallet-export.service';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([FractionKycAllowlist, WalletExport, WalletExportItem]),
+    TypeOrmModule.forFeature([FractionKycAllowlist, WalletExport, WalletExportItem, WalletRotationTransfer]),
     WalletsModule,
     WalletsAuditModule,
     RelayerModule,

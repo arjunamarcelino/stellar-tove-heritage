@@ -12,16 +12,21 @@ import {
 } from '@nestjs/throttler';
 import { JwtPayload } from '@common/interfaces/jwt-payload.interface';
 import { jwtConfig } from '@config/jwt.config';
+import { backofficeJwtConfig } from '@config/backoffice-jwt.config';
 
 /**
  * Rate-limit tracker keyed on the caller's identity rather than their IP (TOV-25 #165). For authenticated
  * requests the limit is per JWT `sub`, so shared-NAT users don't consume each other's budget and a single
  * user behind rotating IPs is still bounded. Anonymous or invalid-token requests fall back to IP keying.
  *
+ * User and admin tokens are signed with DIFFERENT secrets, so we try both: user first (`user:<sub>`), then
+ * the backoffice/admin secret (`admin:<sub>`, todo 268). Before this, admin tokens failed the user-secret
+ * verify and silently degraded to per-IP keying, so all admins behind a shared NAT/LB egress shared one
+ * bucket (self-DoS) and a leaked admin token got a full per-IP budget with no per-identity ceiling.
+ *
  * This guard runs BEFORE {@link AuthGuard} (throttler is the first global guard), so `request.user` is not
- * set yet — it verifies the bearer token itself with the same parameters AuthGuard uses. The double verify
- * (here + AuthGuard) is a small, deliberate cost; an invalid/expired token simply degrades to IP keying and
- * is rejected later by AuthGuard.
+ * set yet — it verifies the bearer token itself with the same parameters those guards use. The extra verify
+ * is a small, deliberate cost; an invalid/expired token simply degrades to IP keying and is rejected later.
  */
 @Injectable()
 export class UserAwareThrottlerGuard extends ThrottlerGuard {
@@ -31,6 +36,7 @@ export class UserAwareThrottlerGuard extends ThrottlerGuard {
     reflector: Reflector,
     private readonly jwtService: JwtService,
     @Inject(jwtConfig.KEY) private readonly jwt: ConfigType<typeof jwtConfig>,
+    @Inject(backofficeJwtConfig.KEY) private readonly backofficeJwt: ConfigType<typeof backofficeJwtConfig>,
   ) {
     super(options, storageService, reflector);
   }
@@ -39,6 +45,7 @@ export class UserAwareThrottlerGuard extends ThrottlerGuard {
     const request = req as unknown as Request;
     const [type, token] = request.headers?.authorization?.split(' ') ?? [];
     if (type === 'Bearer' && token) {
+      // 1) user token → per-user sub
       try {
         const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
           secret: this.jwt.accessSecret,
@@ -47,7 +54,18 @@ export class UserAwareThrottlerGuard extends ThrottlerGuard {
         });
         if (payload?.sub) return `user:${payload.sub}`;
       } catch {
-        // invalid/expired token → degrade to IP keying (AuthGuard rejects it downstream)
+        // not a user token — fall through to the admin secret
+      }
+      // 2) admin/backoffice token (different secret) → per-admin sub (todo 268)
+      try {
+        const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
+          secret: this.backofficeJwt.accessSecret,
+          issuer: 'tove-api',
+          audience: 'tove-platform',
+        });
+        if (payload?.type === 'admin' && payload?.sub) return `admin:${payload.sub}`;
+      } catch {
+        // invalid/expired token → degrade to IP keying (the auth guard rejects it downstream)
       }
     }
     return `ip:${request.ip ?? 'unknown'}`;

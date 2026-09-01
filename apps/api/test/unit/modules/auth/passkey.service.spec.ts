@@ -13,13 +13,17 @@ import { WalletBindError } from '../../../../src/modules/wallets/wallet-bind.err
 
 // generate/verify are mocked; the /helpers subpath (cose, decode) stays REAL so
 // decodeCoseToRawP256 runs against genuine COSE keys.
-const { mockGenerate, mockVerify } = vi.hoisted(() => ({
+const { mockGenerate, mockVerify, mockGenerateAuth, mockVerifyAuth } = vi.hoisted(() => ({
   mockGenerate: vi.fn(),
   mockVerify: vi.fn(),
+  mockGenerateAuth: vi.fn(),
+  mockVerifyAuth: vi.fn(),
 }));
 vi.mock('@simplewebauthn/server', () => ({
   generateRegistrationOptions: mockGenerate,
   verifyRegistrationResponse: mockVerify,
+  generateAuthenticationOptions: mockGenerateAuth,
+  verifyAuthenticationResponse: mockVerifyAuth,
 }));
 
 class FakeChallengeRepo implements IPasskeyChallengeRepository {
@@ -75,6 +79,8 @@ describe('PasskeyService', () => {
   let walletsService: {
     findByCredentialId: ReturnType<typeof vi.fn>;
     createEmbeddedPasskeyWallet: ReturnType<typeof vi.fn>;
+    findEmbeddedCredentialForUser: ReturnType<typeof vi.fn>;
+    updatePasskeyCredentialCounter: ReturnType<typeof vi.fn>;
   };
   let authService: { issueTokensForUser: ReturnType<typeof vi.fn> };
   let service: PasskeyService;
@@ -89,6 +95,8 @@ describe('PasskeyService', () => {
       createEmbeddedPasskeyWallet: vi
         .fn()
         .mockResolvedValue({ user: { id: 'u1', email: 'user@example.com' } }),
+      findEmbeddedCredentialForUser: vi.fn().mockResolvedValue(null),
+      updatePasskeyCredentialCounter: vi.fn().mockResolvedValue(undefined),
     };
     authService = {
       issueTokensForUser: vi
@@ -299,6 +307,176 @@ describe('PasskeyService', () => {
       mockVerify.mockResolvedValue(verified);
       walletsService.createEmbeddedPasskeyWallet.mockRejectedValue(new WalletBindError(reason));
       await expect(service.finish(dto as never)).rejects.toMatchObject({ response: { errorCode } });
+    });
+  });
+
+  // A WebAuthn assertion (login) body — verify is mocked, so clientDataJSON only needs the challenge.
+  const assertionFor = (challenge: string, credId = 'cred-1') => ({
+    id: credId,
+    rawId: credId,
+    type: 'public-key' as const,
+    clientExtensionResults: {},
+    response: {
+      clientDataJSON: Buffer.from(
+        JSON.stringify({ type: 'webauthn.get', challenge }),
+      ).toString('base64url'),
+      authenticatorData: 'YXV0aA',
+      signature: 'c2ln',
+    },
+  });
+
+  describe('beginAuto (email-first)', () => {
+    it('new email -> signup mode with registration options', async () => {
+      usersService.findByEmail.mockResolvedValue(null);
+      mockGenerate.mockResolvedValue({ challenge: 'chal-su', rp: { id: 'tove.io' } });
+      const result = await service.beginAuto('new@example.com');
+      expect(result.mode).toBe('signup');
+      expect(result.options).toMatchObject({ challenge: 'chal-su' });
+      expect(await challenges.findByChallenge('chal-su')).not.toBeNull();
+      expect(mockGenerateAuth).not.toHaveBeenCalled();
+    });
+
+    it('existing passkey account -> login mode with authentication options', async () => {
+      usersService.findByEmail.mockResolvedValue({ id: 'u1' });
+      walletsService.findEmbeddedCredentialForUser.mockResolvedValue({
+        credentialId: 'cred-1',
+        transports: 'internal',
+        publicKey: Buffer.from([1, 2, 3]),
+        counter: 0,
+      });
+      mockGenerateAuth.mockResolvedValue({ challenge: 'chal-lg' });
+      const result = await service.beginAuto('user@example.com');
+      expect(result.mode).toBe('login');
+      expect(result.options).toMatchObject({ challenge: 'chal-lg' });
+      expect(await challenges.findByChallenge('chal-lg')).not.toBeNull();
+      // allowCredentials scoped to the user's stored credential + parsed transports.
+      expect(mockGenerateAuth).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allowCredentials: [{ id: 'cred-1', transports: ['internal'] }],
+        }),
+      );
+      expect(mockGenerate).not.toHaveBeenCalled();
+    });
+
+    it('email registered by a non-passkey method -> AUTH_EMAIL_CONFLICT', async () => {
+      usersService.findByEmail.mockResolvedValue({ id: 'u1' });
+      walletsService.findEmbeddedCredentialForUser.mockResolvedValue(null);
+      await expect(service.beginAuto('legacy@example.com')).rejects.toMatchObject({
+        response: { errorCode: ErrorCode.AUTH_EMAIL_CONFLICT },
+      });
+    });
+  });
+
+  describe('finishAuto (email-first)', () => {
+    const seedLoginCredential = (over: Record<string, unknown> = {}) =>
+      walletsService.findByCredentialId.mockResolvedValue({
+        credentialId: 'cred-1',
+        counter: 0,
+        publicKey: Buffer.from([1, 2, 3]),
+        transports: 'internal',
+        wallet: { user: { id: 'u1', email: 'user@example.com' }, contractAddress: 'CLOGINADDR' },
+        ...over,
+      });
+
+    it('login happy path: verifies assertion, consumes challenge, issues tokens + contractAddress', async () => {
+      challenges.seed({ email: 'user@example.com', challenge: 'chal-lg', expiresAt: future() });
+      seedLoginCredential();
+      mockVerifyAuth.mockResolvedValue({ verified: true, authenticationInfo: { newCounter: 0 } });
+
+      const result = await service.finishAuto({
+        email: 'user@example.com',
+        assertionResponse: assertionFor('chal-lg'),
+      });
+
+      expect(result).toEqual({
+        mode: 'login',
+        accessToken: 'access.jwt',
+        refreshToken: 'refresh.jwt',
+        contractAddress: 'CLOGINADDR',
+      });
+      expect(challenges.rows.get('chal-lg')?.consumedAt).not.toBeNull();
+      // counter did not increase -> no write
+      expect(walletsService.updatePasskeyCredentialCounter).not.toHaveBeenCalled();
+      expect(relayer.calls).toHaveLength(0); // login never deploys
+    });
+
+    it('login advances the signature counter when it strictly increases', async () => {
+      challenges.seed({ email: 'user@example.com', challenge: 'chal-c', expiresAt: future() });
+      seedLoginCredential();
+      mockVerifyAuth.mockResolvedValue({ verified: true, authenticationInfo: { newCounter: 7 } });
+      await service.finishAuto({
+        email: 'user@example.com',
+        assertionResponse: assertionFor('chal-c'),
+      });
+      expect(walletsService.updatePasskeyCredentialCounter).toHaveBeenCalledWith('cred-1', 7);
+    });
+
+    it('login with unknown credential -> VERIFICATION_FAILED (challenge not consumed)', async () => {
+      challenges.seed({ email: 'user@example.com', challenge: 'chal-nc', expiresAt: future() });
+      walletsService.findByCredentialId.mockResolvedValue(null);
+      await expect(
+        service.finishAuto({
+          email: 'user@example.com',
+          assertionResponse: assertionFor('chal-nc'),
+        }),
+      ).rejects.toMatchObject({ response: { errorCode: ErrorCode.AUTH_PASSKEY_VERIFICATION_FAILED } });
+      expect(challenges.rows.get('chal-nc')?.consumedAt).toBeNull();
+    });
+
+    it('login where the credential belongs to another email -> VERIFICATION_FAILED', async () => {
+      challenges.seed({ email: 'user@example.com', challenge: 'chal-mm2', expiresAt: future() });
+      seedLoginCredential({
+        wallet: { user: { id: 'u2', email: 'other@example.com' }, contractAddress: 'COTHER' },
+      });
+      await expect(
+        service.finishAuto({
+          email: 'user@example.com',
+          assertionResponse: assertionFor('chal-mm2'),
+        }),
+      ).rejects.toMatchObject({ response: { errorCode: ErrorCode.AUTH_PASSKEY_VERIFICATION_FAILED } });
+    });
+
+    it('login verify failure -> VERIFICATION_FAILED and challenge stays live', async () => {
+      challenges.seed({ email: 'user@example.com', challenge: 'chal-vf2', expiresAt: future() });
+      seedLoginCredential();
+      mockVerifyAuth.mockResolvedValue({ verified: false });
+      await expect(
+        service.finishAuto({
+          email: 'user@example.com',
+          assertionResponse: assertionFor('chal-vf2'),
+        }),
+      ).rejects.toMatchObject({ response: { errorCode: ErrorCode.AUTH_PASSKEY_VERIFICATION_FAILED } });
+      expect(challenges.rows.get('chal-vf2')?.consumedAt).toBeNull();
+    });
+
+    it('signup delegates to the registration flow (deploys + binds, mode=signup)', async () => {
+      const { dto, verified } = scenario('user@example.com', 'chal-sd');
+      challenges.seed({ email: 'user@example.com', challenge: 'chal-sd', expiresAt: future() });
+      mockVerify.mockResolvedValue(verified);
+      const result = await service.finishAuto({
+        email: 'user@example.com',
+        attestationResponse: dto.attestationResponse,
+      });
+      expect(result.mode).toBe('signup');
+      expect(result.contractAddress).toMatch(/^C.{55}$/);
+      expect(walletsService.createEmbeddedPasskeyWallet).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a body with neither response -> VERIFICATION_FAILED', async () => {
+      await expect(service.finishAuto({ email: 'user@example.com' })).rejects.toMatchObject({
+        response: { errorCode: ErrorCode.AUTH_PASSKEY_VERIFICATION_FAILED },
+      });
+    });
+
+    it('rejects a body with BOTH responses -> VERIFICATION_FAILED', async () => {
+      const { dto } = scenario('user@example.com', 'chal-both');
+      await expect(
+        service.finishAuto({
+          email: 'user@example.com',
+          assertionResponse: assertionFor('chal-both'),
+          attestationResponse: dto.attestationResponse,
+        }),
+      ).rejects.toMatchObject({ response: { errorCode: ErrorCode.AUTH_PASSKEY_VERIFICATION_FAILED } });
     });
   });
 });

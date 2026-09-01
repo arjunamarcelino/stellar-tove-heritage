@@ -27,6 +27,7 @@ import { AdminRole } from '@common/enums/admin-role.enum';
 import { BackofficeGuard } from '@common/guards/backoffice.guard';
 import { BackofficeRequest } from '@common/interfaces/backoffice-request.interface';
 import { PaginatedResponseDto } from '@common/dto/paginated-response.dto';
+import { ApiPaginatedResponse } from '@common/decorators/api-paginated-response.decorator';
 import { MissionsService } from './missions.service';
 import { CreateMissionDto } from './dto/create-mission.dto';
 import { UpdateMissionDto } from './dto/update-mission.dto';
@@ -44,7 +45,7 @@ export class MissionsController {
 
   @Get()
   @ApiOperation({ summary: 'List all missions (paginated, filterable by stage)' })
-  @ApiOkResponse({ type: MissionResponseDto, isArray: true })
+  @ApiPaginatedResponse(MissionResponseDto)
   findAll(
     @Query() query: MissionQueryDto,
   ): Promise<PaginatedResponseDto<MissionResponseDto>> {

@@ -6,6 +6,12 @@ export const WALLET_REPOSITORY = 'IWalletRepository';
 export interface IWalletRepository {
   /** Look up an ACTIVE wallet by its Stellar public key, with the bound user loaded. */
   findByPublicKey(publicKey: string): Promise<Wallet | null>;
+  /**
+   * Of the given Stellar public keys, the subset that is a LIVE BYOW wallet binding (soft-deleted excluded).
+   * One `IN (…)` query, no relations hydrated — the TOV-243 advisory external-wallet check. `public_key` is
+   * set only on `byow` rows, so a match is intrinsically byow-scoped.
+   */
+  findActiveByowPublicKeysIn(publicKeys: string[]): Promise<string[]>;
   /** Look up the caller's ACTIVE embedded-passkey wallet by user id (live rows only). */
   findEmbeddedWalletByUserId(userId: string): Promise<Wallet | null>;
   /** All LIVE wallets owned by a user (oldest first) — the `GET /me/wallets` list. */

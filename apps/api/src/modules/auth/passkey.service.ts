@@ -4,7 +4,12 @@ import { randomBytes } from 'node:crypto';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
   type VerifiedRegistrationResponse,
+  type VerifiedAuthenticationResponse,
+  type PublicKeyCredentialCreationOptionsJSON,
+  type AuthenticatorTransportFuture,
 } from '@simplewebauthn/server';
 import { cose } from '@simplewebauthn/server/helpers';
 import { ErrorCode } from '@common/enums/error-code.enum';
@@ -23,10 +28,17 @@ import {
 } from '@modules/relayer/relayer.service.interface';
 import { PasskeyRegisterFinishDto } from './dto/passkey-register-finish.dto';
 import { PasskeyRegistrationOptionsResponseDto } from './dto/passkey-registration-options-response.dto';
+import { PasskeyBeginResponseDto, type PasskeyMode } from './dto/passkey-begin-response.dto';
+import { PasskeyFinishDto, AuthenticationResponseDto } from './dto/passkey-finish.dto';
 import { extractClientChallenge, decodeCoseToRawP256 } from './passkey.helpers';
 
 type Tokens = { accessToken: string; refreshToken: string };
 type FinishResult = Tokens & { contractAddress: string };
+type FinishAutoResult = FinishResult & { mode: PasskeyMode };
+
+/** Parse the comma-joined stored transports back into the WebAuthn array (or undefined). */
+const parseTransports = (t: string | null): AuthenticatorTransportFuture[] | undefined =>
+  t ? (t.split(',') as AuthenticatorTransportFuture[]) : undefined;
 
 @Injectable()
 export class PasskeyService {
@@ -49,7 +61,40 @@ export class PasskeyService {
     if (await this.usersService.findByEmail(email)) {
       throw this.fail(ErrorCode.AUTH_EMAIL_CONFLICT, HttpStatus.CONFLICT);
     }
+    const options = await this.registrationBegin(email);
+    return PasskeyRegistrationOptionsResponseDto.create(options);
+  }
 
+  /**
+   * Unified email-first begin. Decides the ceremony from whether the email already has a passkey
+   * account: an existing passkey user → LOGIN (authentication options); a brand-new email → SIGNUP
+   * (registration options). An email registered by a DIFFERENT method (email/password, BYOW) has no
+   * passkey to log in with and cannot be re-registered → 409 (same as the register path's taken email).
+   */
+  async beginAuto(email: string): Promise<PasskeyBeginResponseDto> {
+    const user = await this.usersService.findByEmail(email);
+    if (user) {
+      const credential = await this.walletsService.findEmbeddedCredentialForUser(user.id);
+      if (!credential) {
+        throw this.fail(ErrorCode.AUTH_EMAIL_CONFLICT, HttpStatus.CONFLICT);
+      }
+      const options = await generateAuthenticationOptions({
+        rpID: this.cfg.rpId,
+        timeout: this.cfg.challengeTimeout * 1000,
+        userVerification: 'required',
+        allowCredentials: [
+          { id: credential.credentialId, transports: parseTransports(credential.transports) },
+        ],
+      });
+      await this.persistChallenge(email, options.challenge);
+      return PasskeyBeginResponseDto.login(options);
+    }
+    const options = await this.registrationBegin(email);
+    return PasskeyBeginResponseDto.signup(options);
+  }
+
+  /** Generate registration options (ES256/P-256 only) and persist the challenge for `email`. */
+  private async registrationBegin(email: string): Promise<PublicKeyCredentialCreationOptionsJSON> {
     const options = await generateRegistrationOptions({
       rpName: this.cfg.rpName,
       rpID: this.cfg.rpId,
@@ -64,21 +109,26 @@ export class PasskeyService {
       supportedAlgorithmIDs: [cose.COSEALG.ES256],
       timeout: this.cfg.challengeTimeout * 1000,
     });
+    await this.persistChallenge(email, options.challenge);
+    return options;
+  }
 
-    // Evict the caller's oldest outstanding challenges BEFORE inserting, so the total
-    // is bounded at exactly maxOutstandingChallenges (matches the SEP-10 ordering).
+  /**
+   * Evict the caller's oldest outstanding challenges BEFORE inserting (so the total is bounded at
+   * exactly maxOutstandingChallenges — matches the SEP-10 ordering), persist the new challenge, and
+   * kick a best-effort expired-challenge sweep. Shared by the registration + authentication begins.
+   */
+  private async persistChallenge(email: string, challenge: string): Promise<void> {
     await this.challenges.pruneOutstandingByEmail(
       email,
       Math.max(this.cfg.maxOutstandingChallenges - 1, 0),
     );
     await this.challenges.create({
       email,
-      challenge: options.challenge,
+      challenge,
       expiresAt: new Date(Date.now() + this.cfg.challengeTimeout * 1000),
     });
     this.sweepExpiredChallenges();
-
-    return PasskeyRegistrationOptionsResponseDto.create(options);
   }
 
   /** Verify the attestation, deploy the smart wallet, and bind the account. */
@@ -212,6 +262,114 @@ export class PasskeyService {
     const tokens = await this.authService.issueTokensForUser({
       id: bindResult.user.id,
       email: bindResult.user.email,
+    });
+    return { ...tokens, contractAddress };
+  }
+
+  /**
+   * Unified finish. The client sends exactly one of `assertionResponse` (LOGIN) or
+   * `attestationResponse` (SIGNUP); the mode is inferred from which is present (zero/both → a generic
+   * verification failure, no oracle). Returns the mode so the controller can set 200 (login) vs 201
+   * (signup) — the token/cookie handling is identical.
+   */
+  async finishAuto(dto: PasskeyFinishDto): Promise<FinishAutoResult> {
+    const hasLogin = Boolean(dto.assertionResponse);
+    const hasSignup = Boolean(dto.attestationResponse);
+    if (hasLogin === hasSignup) {
+      // exactly one is required — zero or both is a malformed/ambiguous body
+      throw this.verificationFailed();
+    }
+    if (hasLogin) {
+      const tokens = await this.loginFinish(dto.email, dto.assertionResponse!);
+      return { mode: 'login', ...tokens };
+    }
+    const tokens = await this.finish({
+      email: dto.email,
+      attestationResponse: dto.attestationResponse!,
+    });
+    return { mode: 'signup', ...tokens };
+  }
+
+  /** Verify a WebAuthn assertion for an existing passkey account and issue tokens (no chain call). */
+  private async loginFinish(
+    email: string,
+    assertion: AuthenticationResponseDto,
+  ): Promise<FinishResult> {
+    let clientChallenge: string;
+    try {
+      clientChallenge = extractClientChallenge(assertion);
+    } catch {
+      throw this.verificationFailed();
+    }
+
+    const row = await this.challenges.findByChallenge(clientChallenge);
+    if (!row) {
+      throw this.fail(ErrorCode.AUTH_CHALLENGE_NOT_FOUND, HttpStatus.UNAUTHORIZED);
+    }
+    if (row.email.toLowerCase() !== email.toLowerCase()) {
+      throw this.verificationFailed();
+    }
+    if (row.consumedAt) {
+      throw this.fail(ErrorCode.AUTH_CHALLENGE_ALREADY_USED, HttpStatus.UNAUTHORIZED);
+    }
+    if (row.expiresAt.getTime() < Date.now()) {
+      throw this.fail(ErrorCode.AUTH_CHALLENGE_EXPIRED, HttpStatus.UNAUTHORIZED);
+    }
+
+    // Resolve the credential the assertion claims and bind it to this email (owner check): the stored
+    // public key + counter are the verification inputs; a mismatch/absence is a generic failure.
+    const credential = await this.walletsService.findByCredentialId(assertion.id);
+    const boundUser = credential?.wallet?.user;
+    const contractAddress = credential?.wallet?.contractAddress;
+    if (
+      !credential ||
+      !boundUser?.email ||
+      boundUser.email.toLowerCase() !== email.toLowerCase() ||
+      !contractAddress
+    ) {
+      throw this.verificationFailed();
+    }
+
+    // Verify BEFORE consuming (a forged/failed assertion must not burn a live challenge).
+    let verification: VerifiedAuthenticationResponse;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response: assertion,
+        expectedChallenge: row.challenge,
+        expectedOrigin: this.cfg.origins,
+        expectedRPID: this.cfg.rpId,
+        requireUserVerification: true,
+        credential: {
+          id: credential.credentialId,
+          publicKey: new Uint8Array(credential.publicKey),
+          counter: credential.counter,
+          transports: parseTransports(credential.transports),
+        },
+      });
+    } catch {
+      throw this.verificationFailed();
+    }
+    if (!verification.verified) {
+      throw this.verificationFailed();
+    }
+
+    // Single-use consume AFTER a passing verify; a lost race (already consumed) is ALREADY_USED.
+    const consumed = await this.challenges.consumeByChallenge(row.challenge);
+    if (!consumed) {
+      throw this.fail(ErrorCode.AUTH_CHALLENGE_ALREADY_USED, HttpStatus.UNAUTHORIZED);
+    }
+
+    // Advance the signature counter for clone/replay detection — only when it strictly increases
+    // (platform passkeys commonly stay at 0, so the write is skipped).
+    const { newCounter } = verification.authenticationInfo;
+    if (newCounter > credential.counter) {
+      await this.walletsService.updatePasskeyCredentialCounter(credential.credentialId, newCounter);
+    }
+
+    this.sweepExpiredChallenges();
+    const tokens = await this.authService.issueTokensForUser({
+      id: boundUser.id,
+      email: boundUser.email,
     });
     return { ...tokens, contractAddress };
   }

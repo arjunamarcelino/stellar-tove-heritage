@@ -12,6 +12,7 @@ import { USER_REPOSITORY } from '@modules/users/repositories/user-repository.int
 import { HandleHistoryRepository } from '@modules/users/repositories/handle-history.repository';
 import { HANDLE_HISTORY_REPOSITORY } from '@modules/users/repositories/handle-history-repository.interface';
 import { UsersService } from '@modules/users/users.service';
+import { ProfileViewService } from '@modules/users/profile/profile-view.service';
 import { AuthService } from '@modules/auth/auth.service';
 import { UserStagesService } from '@modules/stages/stages.service';
 import { jwtConfig } from '@config/jwt.config';
@@ -36,6 +37,8 @@ const testJwtConfig = {
     // getProfile, so UserStagesService (a getProfile dependency) is stubbed to
     // avoid dragging in the full stages/backoffice module graph.
     { provide: UserStagesService, useValue: { getCurrentStage: () => Promise.resolve(null) } },
+    // getProfile also builds the profile view (TOV-30) — stubbed; these tests exercise token flows.
+    { provide: ProfileViewService, useValue: { buildForUser: () => Promise.resolve({}) } },
     { provide: jwtConfig.KEY, useValue: testJwtConfig },
   ],
   exports: [UsersService, AuthService],

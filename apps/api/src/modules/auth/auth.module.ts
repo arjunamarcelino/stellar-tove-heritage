@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersModule } from '@modules/users/users.module';
 import { UserStagesModule } from '@modules/stages/stages.module';
+import { ProfileViewModule } from '@modules/users/profile/profile-view.module';
 import { WalletsModule } from '@modules/wallets/wallets.module';
 import { RelayerModule } from '@modules/relayer/relayer.module';
 import { AuthService } from './auth.service';
@@ -23,6 +24,7 @@ import { PASSKEY_CHALLENGE_REPOSITORY } from './repositories/passkey-challenge-r
     JwtModule.register({}),
     UsersModule,
     UserStagesModule,
+    ProfileViewModule,
     WalletsModule,
     RelayerModule,
     TypeOrmModule.forFeature([AuthChallenge, PasskeyChallenge]),

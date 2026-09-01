@@ -3,6 +3,8 @@ import { renderHook, act } from '@testing-library/react';
 import {
   fakeCreationOptions,
   fakeRegistrationResponse,
+  fakeRequestOptions,
+  fakeAssertionResponse,
   fakeFinish201,
   fakeContractAddress,
 } from '@/test/fixtures/passkey';
@@ -11,6 +13,7 @@ const h = vi.hoisted(() => ({
   begin: vi.fn(),
   finish: vi.fn(),
   startPasskeyRegistration: vi.fn(),
+  startPasskeyAssertion: vi.fn(),
 }));
 
 vi.mock('@/app/actions/passkey', () => ({
@@ -19,16 +22,22 @@ vi.mock('@/app/actions/passkey', () => ({
 }));
 vi.mock('@/lib/webauthn/passkey', () => ({
   startPasskeyRegistration: h.startPasskeyRegistration,
+  startPasskeyAssertion: h.startPasskeyAssertion,
 }));
 
 import { usePasskeyEnroll } from '@/hooks/usePasskeyEnroll';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  h.begin.mockResolvedValue({ status: 'success', options: fakeCreationOptions });
+  // Default: a signup ceremony.
+  h.begin.mockResolvedValue({ status: 'success', mode: 'signup', options: fakeCreationOptions });
   h.startPasskeyRegistration.mockResolvedValue({
     status: 'success',
     response: fakeRegistrationResponse,
+  });
+  h.startPasskeyAssertion.mockResolvedValue({
+    status: 'success',
+    response: fakeAssertionResponse,
   });
   h.finish.mockResolvedValue({ status: 'success', ...fakeFinish201 });
 });
@@ -39,7 +48,7 @@ describe('usePasskeyEnroll', () => {
     expect(result.current.state).toEqual({ status: 'idle' });
   });
 
-  it('walks the happy path to success carrying the wallet address', async () => {
+  it('walks the signup happy path to success carrying the wallet address', async () => {
     const { result } = renderHook(() => usePasskeyEnroll());
     await act(async () => {
       await result.current.enroll('a@b.com');
@@ -47,14 +56,38 @@ describe('usePasskeyEnroll', () => {
 
     expect(result.current.state).toEqual({
       status: 'success',
+      mode: 'signup',
       contractAddress: fakeContractAddress,
     });
-    // order: begin → ceremony(options) → finish(email + attestation, no deviceName)
+    // order: begin → registration ceremony(options) → finish(email + attestation + mode)
     expect(h.begin).toHaveBeenCalledWith('a@b.com');
     expect(h.startPasskeyRegistration).toHaveBeenCalledWith(fakeCreationOptions);
+    expect(h.startPasskeyAssertion).not.toHaveBeenCalled();
     expect(h.finish).toHaveBeenCalledWith({
       email: 'a@b.com',
+      mode: 'signup',
       attestationResponse: fakeRegistrationResponse,
+    });
+  });
+
+  it('walks the login happy path: runs the assertion ceremony and finishes with the assertion', async () => {
+    h.begin.mockResolvedValue({ status: 'success', mode: 'login', options: fakeRequestOptions });
+    const { result } = renderHook(() => usePasskeyEnroll());
+    await act(async () => {
+      await result.current.enroll('a@b.com');
+    });
+
+    expect(result.current.state).toEqual({
+      status: 'success',
+      mode: 'login',
+      contractAddress: fakeContractAddress,
+    });
+    expect(h.startPasskeyAssertion).toHaveBeenCalledWith(fakeRequestOptions);
+    expect(h.startPasskeyRegistration).not.toHaveBeenCalled();
+    expect(h.finish).toHaveBeenCalledWith({
+      email: 'a@b.com',
+      mode: 'login',
+      assertionResponse: fakeAssertionResponse,
     });
   });
 
@@ -130,11 +163,13 @@ describe('usePasskeyEnroll', () => {
 
     expect(result.current.state).toEqual({
       status: 'success',
+      mode: 'signup',
       contractAddress: fakeContractAddress,
     });
     // re-finish keeps the original challenge-bound email, ignoring the retry arg
     expect(h.finish).toHaveBeenNthCalledWith(2, {
       email: 'a@b.com',
+      mode: 'signup',
       attestationResponse: fakeRegistrationResponse,
     });
     expect(h.begin).toHaveBeenCalledTimes(1); // did NOT re-begin

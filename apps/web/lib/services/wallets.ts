@@ -66,3 +66,17 @@ export async function listWallets(accessToken: string): Promise<ListWalletsResul
 
   return { status: 'success', wallets: parsed.data };
 }
+
+// The single address to surface in global chrome (the navbar). Prefers the primary wallet, then the
+// embedded passkey wallet, then whatever's first. Returns null on any error / no wallets so the
+// caller can fall back to a plain "Wallet" link — a failed lookup must never break the layout.
+export async function getDisplayWalletAddress(accessToken: string): Promise<string | null> {
+  const result = await listWallets(accessToken);
+  if (result.status !== 'success' || result.wallets.length === 0) return null;
+  const { wallets } = result;
+  const chosen =
+    wallets.find((w) => w.isPrimary) ??
+    wallets.find((w) => w.kind === 'embedded_passkey') ??
+    wallets[0];
+  return chosen?.address ?? null;
+}

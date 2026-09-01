@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { PasskeyEnrollState } from '@/lib/types/api';
@@ -9,13 +9,12 @@ const h = vi.hoisted(() => ({
   enroll: vi.fn(),
   retry: vi.fn(),
   reset: vi.fn(),
-  replace: vi.fn(),
+  assign: vi.fn(),
   state: { status: 'idle' } as PasskeyEnrollState,
   dialogSpy: vi.fn(),
 }));
 
 vi.mock('@/lib/webauthn/passkey', () => ({ detectPasskeySupport: h.detectPasskeySupport }));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: h.replace }) }));
 vi.mock('@/hooks/usePasskeyEnroll', () => ({
   usePasskeyEnroll: () => ({
     state: h.state,
@@ -49,9 +48,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.state = { status: 'idle' };
   h.detectPasskeySupport.mockResolvedValue({ supported: true });
+  // The component navigates via window.location.assign (hard nav); stub it so jsdom doesn't warn.
+  vi.stubGlobal('location', { assign: h.assign });
 });
 
-const passkeyCta = () => screen.queryByRole('button', { name: /create account with passkey/i });
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const passkeyCta = () => screen.queryByRole('button', { name: /continue with passkey/i });
 
 describe('PasskeySignup — capability gate', () => {
   it('shows no CTA while capability detection is pending (no flash)', () => {
@@ -64,7 +69,7 @@ describe('PasskeySignup — capability gate', () => {
   it('shows the passkey CTA when supported', async () => {
     render(<PasskeySignup />);
     expect(
-      await screen.findByRole('button', { name: /create account with passkey/i }),
+      await screen.findByRole('button', { name: /continue with passkey/i }),
     ).toBeInTheDocument();
   });
 
@@ -82,7 +87,7 @@ describe('PasskeySignup — interaction', () => {
   it('calls enroll with the entered email on submit', async () => {
     const user = userEvent.setup();
     render(<PasskeySignup />);
-    const cta = await screen.findByRole('button', { name: /create account with passkey/i });
+    const cta = await screen.findByRole('button', { name: /continue with passkey/i });
     await user.type(screen.getByLabelText(/email/i), 'leo@example.com');
     await user.click(cta);
     expect(h.enroll).toHaveBeenCalledWith('leo@example.com');
@@ -104,16 +109,16 @@ describe('PasskeySignup — interaction', () => {
     expect(cta).toBeDisabled();
   });
 
-  it('renders EMAIL_CONFLICT error with a "Sign in instead" link and no retry', async () => {
+  it('renders EMAIL_CONFLICT as a terminal error: no retry, no sign-in link', async () => {
     h.state = {
       status: 'error',
       code: 'EMAIL_CONFLICT',
-      message: 'That email is already registered.',
+      message: 'That email is already registered with a different sign-in method.',
     };
     render(<PasskeySignup />);
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-    expect(screen.getByText(/that email is already registered/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /sign in instead/i })).toBeInTheDocument();
+    expect(screen.getByText(/different sign-in method/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /sign in instead/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
   });
 
@@ -130,8 +135,8 @@ describe('PasskeySignup — interaction', () => {
     expect(h.retry).toHaveBeenCalled();
   });
 
-  it('renders the success screen with the wallet address, explorer link and reassurance copy', () => {
-    h.state = { status: 'success', contractAddress: fakeContractAddress };
+  it('renders the signup success screen with the wallet address, explorer link and reassurance copy', () => {
+    h.state = { status: 'success', mode: 'signup', contractAddress: fakeContractAddress };
     render(<PasskeySignup />);
     expect(screen.getByText(/account created/i)).toBeInTheDocument();
     expect(screen.getByText(/tove cannot move funds without your passkey/i)).toBeInTheDocument();
@@ -143,11 +148,19 @@ describe('PasskeySignup — interaction', () => {
     );
   });
 
-  it('navigates home when "Continue" is clicked on the success screen', async () => {
+  it('auto-redirects to / (hard nav) on login success without showing the wallet card', async () => {
+    h.state = { status: 'success', mode: 'login', contractAddress: fakeContractAddress };
+    render(<PasskeySignup />);
+    await waitFor(() => expect(h.assign).toHaveBeenCalledWith('/'));
+    expect(screen.queryByText(/account created/i)).toBeNull();
+    expect(screen.queryByTitle(fakeContractAddress)).toBeNull();
+  });
+
+  it('navigates home (hard nav) when "Continue" is clicked on the signup success screen', async () => {
     const user = userEvent.setup();
-    h.state = { status: 'success', contractAddress: fakeContractAddress };
+    h.state = { status: 'success', mode: 'signup', contractAddress: fakeContractAddress };
     render(<PasskeySignup />);
     await user.click(screen.getByRole('button', { name: /continue to tove/i }));
-    expect(h.replace).toHaveBeenCalledWith('/');
+    expect(h.assign).toHaveBeenCalledWith('/');
   });
 });

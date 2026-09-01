@@ -1,5 +1,7 @@
 import { Entity, Column, BeforeInsert, BeforeUpdate } from 'typeorm';
 import { BaseEntity } from '@common/entities/base.entity';
+import { KycStatus } from '@common/enums/kyc-status.enum';
+import { SocialLinks } from '@modules/users/profile/constants/social-links.constant';
 
 @Entity('users')
 export class User extends BaseEntity {
@@ -40,6 +42,39 @@ export class User extends BaseEntity {
   // Default true = the AC's public "previously known as" trail; set false to suppress previous_handles.
   @Column({ name: 'handle_history_public', type: 'boolean', default: true })
   handleHistoryPublic!: boolean;
+
+  // KYC/whitelist lifecycle (TOV-28/TOV-29, FR-01.07/FR-01.08). `not_submitted` until the collector submits,
+  // then `pending_review`; the M12 multi-sig flow later drives `whitelisted`/`frozen`/`removed`. varchar+CHECK
+  // (native-enum-free, per house convention); the migration owns the CHECK.
+  @Column({ name: 'kyc_status', type: 'varchar', length: 16, default: KycStatus.NOT_SUBMITTED })
+  kycStatus!: KycStatus;
+
+  // When the collector was whitelisted (TOV-29). Nullable; set only by the M12 transition flow. The read
+  // endpoint gates this to status=whitelisted in the DTO — a stale value on a frozen row is never surfaced.
+  @Column({ name: 'whitelisted_at', type: 'timestamptz', nullable: true })
+  whitelistedAt: Date | null = null;
+
+  // Machine-readable reason CODE for frozen/removed (TOV-29 R3), e.g. 'frozen_compliance_review'. NEVER raw
+  // admin prose (that lives in internal_audit_log) — the client localizes the code. Nullable; M12-written.
+  @Column({ name: 'kyc_reason', type: 'varchar', length: 256, nullable: true })
+  kycReason: string | null = null;
+
+  // Optional profile fields (TOV-30, FR-01.09). Trimmed + control-char-rejected in ProfileService; the
+  // varchar lengths are the DB backstop. `social_links` is the first jsonb column on users (replace-whole-
+  // object semantics; a DB CHECK asserts it is a json object). `profile_image_id` is the active avatar —
+  // a raw-uuid FK (house convention, no @ManyToOne); the service nulls it on deactivate/soft-delete since
+  // the ON DELETE SET NULL action never fires under TypeORM soft deletes.
+  @Column({ name: 'bio', type: 'varchar', length: 300, nullable: true })
+  bio: string | null = null;
+
+  @Column({ name: 'statement', type: 'varchar', length: 500, nullable: true })
+  statement: string | null = null;
+
+  @Column({ name: 'social_links', type: 'jsonb', nullable: true })
+  socialLinks: SocialLinks | null = null;
+
+  @Column({ name: 'profile_image_id', type: 'uuid', nullable: true })
+  profileImageId: string | null = null;
 
   @BeforeInsert()
   @BeforeUpdate()

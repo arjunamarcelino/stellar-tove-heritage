@@ -22,6 +22,17 @@ import { loggerConfig } from '@config/logger.config';
 import { sep10Config } from '@config/sep10.config';
 import { webauthnConfig } from '@config/webauthn.config';
 import { relayerConfig } from '@config/relayer.config';
+import { kycConfig } from '@config/kyc.config';
+import { fractionFactoryConfig } from '@config/fraction-factory.config';
+import { fractionReadConfig } from '@config/fraction-read.config';
+import { walletTrustlineConfig } from '@config/wallet-trustline.config';
+import { marketplaceSettlementConfig } from '@config/marketplace-settlement.config';
+import { kycAllowlistConfig } from '@config/kyc-allowlist.config';
+import { offeringEscrowConfig } from '@config/offering-escrow.config';
+import { offeringBidConfig } from '@config/offering-bid.config';
+import { rfqFanoutConfig } from '@config/rfq-fanout.config';
+import { profileImageConfig } from '@config/profile-image.config';
+import { beneficiaryConfig } from '@config/beneficiary.config';
 import { validationSchema } from '@config/validation-schema';
 import { JwtModule } from '@nestjs/jwt';
 import { DatabaseModule } from '@database/database.module';
@@ -30,6 +41,17 @@ import { UserAwareThrottlerGuard } from '@common/guards/user-aware-throttler.gua
 import { AllExceptionsFilter } from '@common/filters/all-exceptions.filter';
 import { UsersModule } from '@modules/users/users.module';
 import { JobsModule } from '@modules/jobs/jobs.module';
+import { KycSweepModule } from '@modules/kyc/sweep/kyc-sweep.module';
+import { FractionDeployWorkerModule } from '@modules/fractionalization/deploy/fraction-deploy-worker.module';
+import { OfferingWorkerModule } from '@modules/offerings/deploy/offering-worker.module';
+import { OfferingBidWorkerModule } from '@modules/offerings/bids/escrow/offering-bid-worker.module';
+import { OfferingBidCancelWorkerModule } from '@modules/offerings/bids/cancel/offering-bid-cancel-worker.module';
+import { OfferingSettleWorkerModule } from '@modules/offerings/settle/offering-settle-worker.module';
+import { RfqFanoutWorkerModule } from '@modules/marketplace/notifications/fanout/rfq-fanout-worker.module';
+import { QuoteSettleWorkerModule } from '@modules/marketplace/settlement/settle/quote-settle-worker.module';
+import { ProfileDerivativeWorkerModule } from '@modules/users/profile/derivatives/profile-derivative-worker.module';
+import { ProfileImageMaintenanceModule } from '@modules/users/profile/maintenance/profile-image-maintenance.module';
+import { BeneficiaryErasureSweepModule } from '@modules/users/beneficiary/erasure-sweep/beneficiary-erasure-sweep.module';
 import { PublicApiModule } from '@modules/public-api.module';
 import { BackofficeModule } from '@modules/backoffice/backoffice.module';
 import { BullModule } from '@nestjs/bullmq';
@@ -40,7 +62,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, databaseConfig, jwtConfig, backofficeJwtConfig, queueConfig, redisConfig, throttleConfig, supabaseConfig, filesConfig, loggerConfig, sep10Config, webauthnConfig, relayerConfig],
+      load: [appConfig, databaseConfig, jwtConfig, backofficeJwtConfig, queueConfig, redisConfig, throttleConfig, supabaseConfig, filesConfig, loggerConfig, sep10Config, webauthnConfig, relayerConfig, kycConfig, fractionFactoryConfig, fractionReadConfig, walletTrustlineConfig, kycAllowlistConfig, offeringEscrowConfig, offeringBidConfig, rfqFanoutConfig, marketplaceSettlementConfig, profileImageConfig, beneficiaryConfig],
       validationSchema,
     }),
     LoggerModule.forRootAsync({
@@ -134,6 +156,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
     JwtModule.register({}),
     UsersModule,
     JobsModule,
+    KycSweepModule,
+    FractionDeployWorkerModule,
+    OfferingWorkerModule,
+    OfferingBidWorkerModule,
+    OfferingBidCancelWorkerModule,
+    OfferingSettleWorkerModule,
+    RfqFanoutWorkerModule,
+    QuoteSettleWorkerModule,
+    ProfileDerivativeWorkerModule,
+    ProfileImageMaintenanceModule,
+    BeneficiaryErasureSweepModule,
     PublicApiModule,
     BackofficeModule,
   ],

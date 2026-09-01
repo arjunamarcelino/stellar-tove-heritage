@@ -25,4 +25,8 @@ export class PasskeyCredentialRepository
   async findByWalletId(walletId: string): Promise<PasskeyCredential | null> {
     return this.repository.findOne({ where: { walletId } });
   }
+
+  async updateCounter(credentialId: string, counter: number): Promise<void> {
+    await this.repository.update({ credentialId }, { counter });
+  }
 }

@@ -22,9 +22,10 @@ export function explorerAccountUrl(address: string): string {
   return `${EXPLORER_BASE}/account/${address}`;
 }
 
-// A settled transaction (hex hash) — proof-of-settlement links on the partial/success screens.
+// A settled transaction (hex hash) — proof-of-settlement links on the partial/success screens. Encoded
+// defensively so a malformed backend hash can't break the href (a valid hex hash encodes to itself).
 export function explorerTxUrl(txHash: string): string {
-  return `${EXPLORER_BASE}/tx/${txHash}`;
+  return `${EXPLORER_BASE}/tx/${encodeURIComponent(txHash)}`;
 }
 
 // Format a scaled-i128 integer string (base units) to its decimal display value. BigInt-based — the

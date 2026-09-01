@@ -10,6 +10,8 @@ import { queueConfig } from '@config/queue.config';
 import { sep10Config } from '@config/sep10.config';
 import { webauthnConfig } from '@config/webauthn.config';
 import { relayerConfig } from '@config/relayer.config';
+import { supabaseConfig } from '@config/supabase.config';
+import { profileImageConfig } from '@config/profile-image.config';
 
 type NestModule = Type | DynamicModule | Promise<DynamicModule> | ForwardReference;
 
@@ -22,7 +24,7 @@ export function createTestingModuleBuilder(...modules: NestModule[]): TestingMod
     imports: [
       ConfigModule.forRoot({
         isGlobal: true,
-        load: [appConfig, databaseConfig, jwtConfig, backofficeJwtConfig, queueConfig, sep10Config, webauthnConfig, relayerConfig],
+        load: [appConfig, databaseConfig, jwtConfig, backofficeJwtConfig, queueConfig, sep10Config, webauthnConfig, relayerConfig, supabaseConfig, profileImageConfig],
         envFilePath: '.env.test',
         ignoreEnvFile: true,
       }),

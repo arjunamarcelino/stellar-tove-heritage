@@ -32,12 +32,21 @@ export type PostJsonOutcome =
 // The seam is `Authorization`-agnostic: authenticated callers pass a Bearer header via `opts.headers`
 // (mirrors the hand-rolled fetch in lib/services/auth.ts fetchProfile). The token stays in the
 // header — never smuggle it into the JSON body, where it could land in backend request logs.
-type RequestOpts = { timeoutMs?: number; headers?: Record<string, string> };
+//
+// `cache`/`next` opt a GET into Next's fetch cache. A PUBLIC, tokenless read (e.g. getOffering) passes
+// `next: { revalidate, tags }` so the identical body is shared across all viewers; a per-user/authed read
+// passes `cache: 'no-store'` so a signed-in / one-collector response is never served to another visitor.
+type RequestOpts = {
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+  cache?: RequestCache;
+  next?: { revalidate?: number | false; tags?: string[] };
+};
 
 // Shared request core for postJson/getJson. Same env-guard → try/catch → defensive res.json()
 // contract; `status: 0` = no usable HTTP response (missing config, network failure, unparseable body).
 async function requestJson(
-  method: 'GET' | 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   opts?: RequestOpts,
@@ -45,27 +54,69 @@ async function requestJson(
   const apiBaseUrl = process.env.API_BASE_URL;
   if (!apiBaseUrl) return { ok: false, status: 0, data: null };
 
+  // POST and PATCH both carry a JSON body; GET/DELETE never do. Keep the two gates in lockstep so a
+  // PATCH (partial profile update, TOV-35) gets the Content-Type + stringified body a POST would.
+  const hasJsonBody = method === 'POST' || method === 'PATCH';
   const headers: Record<string, string> = { ...opts?.headers };
-  if (method === 'POST') headers['Content-Type'] = 'application/json';
+  if (hasJsonBody) headers['Content-Type'] = 'application/json';
 
   try {
     const res = await fetch(`${apiBaseUrl}${path}`, {
       method,
       headers,
-      body: method === 'POST' ? JSON.stringify(body) : undefined,
+      body: hasJsonBody ? JSON.stringify(body) : undefined,
       // On-chain work (contract deploy / settlement) can take many seconds, so callers pass a
       // generous timeout; an abort surfaces as status 0 → NETWORK_ERROR.
       signal: opts?.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
+      // Fetch-cache controls (GET only in practice): a public read opts into revalidate+tags; an authed
+      // read passes cache:'no-store'. Undefined leaves Next's default (uncached) behaviour untouched.
+      cache: opts?.cache,
+      next: opts?.next,
     });
 
-    let data: unknown = null;
-    try {
-      data = await res.json();
-    } catch {
-      data = null;
-    }
+    return toOutcome(res);
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
 
-    return { ok: res.ok, status: res.status, data };
+// Shared response tail: defensive res.json() → { ok, status, data }. Both requestJson (JSON) and
+// postForm (multipart) funnel through this so the two can't drift. A 204/empty body makes res.json()
+// throw and resolves to data: null.
+async function toOutcome(res: Response): Promise<PostJsonOutcome> {
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// Multipart POST seam (KYC document upload, FR-01.07). A SIBLING of requestJson — not a caller — because
+// requestJson hardcodes `Content-Type: application/json` + `JSON.stringify(body)`. The runtime sets the
+// multipart boundary from the FormData body, so we deliberately do NOT set Content-Type. Auth + the
+// Idempotency-Key travel via opts.headers (never the body). Same env-guard → defensive-JSON →
+// { ok, status, data } contract; status 0 = no usable HTTP response (missing config, network failure,
+// unparseable body). Callers pass a generous timeoutMs sized to cover the upload transfer, not just
+// backend processing.
+export async function postForm(
+  path: string,
+  formData: FormData,
+  opts?: RequestOpts,
+): Promise<PostJsonOutcome> {
+  const apiBaseUrl = process.env.API_BASE_URL;
+  if (!apiBaseUrl) return { ok: false, status: 0, data: null };
+
+  try {
+    const res = await fetch(`${apiBaseUrl}${path}`, {
+      method: 'POST',
+      headers: { ...opts?.headers },
+      body: formData,
+      signal: opts?.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
+    });
+
+    return toOutcome(res);
   } catch {
     return { ok: false, status: 0, data: null };
   }
@@ -77,6 +128,17 @@ export function postJson(
   opts?: RequestOpts,
 ): Promise<PostJsonOutcome> {
   return requestJson('POST', path, body, opts);
+}
+
+// Authenticated partial updates (e.g. the profile edit, TOV-35) — PATCH with a JSON body + Bearer header.
+// Mirrors postJson; the backend applies a partial update (only sent keys are touched), so callers send
+// ONLY the changed, whitelisted fields (NestJS forbidNonWhitelisted rejects any undeclared key).
+export function patchJson(
+  path: string,
+  body: unknown,
+  opts?: RequestOpts,
+): Promise<PostJsonOutcome> {
+  return requestJson('PATCH', path, body, opts);
 }
 
 // Authenticated reads (e.g. the wallet list / export status) — GET with a Bearer header and no body.

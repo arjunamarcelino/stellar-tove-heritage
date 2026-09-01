@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ArtworksController } from '@modules/artworks/artworks.controller';
 import { ArtworksService } from '@modules/artworks/artworks.service';
+import { ArtworkDetailResponseDto } from '@modules/artworks/dto/artwork-detail-response.dto';
 import { ArtworkResponseDto } from '@modules/artworks/dto/artwork-response.dto';
 import { CollectionResponseDto } from '@common/dto/collection-response.dto';
+
+const UUID = '00000000-0000-4000-8000-0000000a0001';
 
 const mockService = {
   list: vi.fn(),
@@ -28,13 +31,13 @@ describe('ArtworksController', () => {
   });
 
   it('findOneById delegates to the service', async () => {
-    const dto = new ArtworkResponseDto();
+    const dto = new ArtworkDetailResponseDto();
     mockService.findOneById.mockResolvedValue(dto);
 
-    const result = await controller.findOneById('aw-001');
+    const result = await controller.findOneById(UUID);
 
     expect(result).toBe(dto);
-    expect(mockService.findOneById).toHaveBeenCalledWith('aw-001');
+    expect(mockService.findOneById).toHaveBeenCalledWith(UUID);
   });
 
   it('is marked @Public() at the class level', () => {

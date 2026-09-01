@@ -26,8 +26,8 @@ export default async function HandlePickerPage() {
   if (existing.status === 'error' && existing.code === 'SESSION_EXPIRED') redirect('/login');
 
   return (
-    <div className="flex min-h-dvh flex-col bg-black">
-      <section className="mx-auto w-full max-w-md flex-1 px-6 py-16">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-black">
+      <section className="w-full max-w-md px-6 py-16">
         <h1 className="font-heading text-3xl text-white">Choose your handle</h1>
         <p className="mt-2 text-sm text-white/60">
           This is how other collectors will find you on Tove.

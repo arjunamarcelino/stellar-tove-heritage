@@ -27,6 +27,10 @@ describe.skipIf(!LIVE)('SorobanRelayerService (live testnet)', () => {
     rpcUrl: process.env.RELAYER_RPC_URL ?? 'https://soroban-testnet.stellar.org',
     networkPassphrase: process.env.RELAYER_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015',
     relayerSecret: process.env.RELAYER_SECRET ?? '',
+    // deploy_wallet is admin-gated: the admin secret signs the auth entry (its G-addr must == factory.admin()).
+    factoryAdminSecret: process.env.RELAYER_FACTORY_ADMIN_SECRET ?? '',
+    factoryAdminPublicKey: '',
+    probeOnBoot: false,
     walletWasmHash: process.env.RELAYER_WALLET_WASM_HASH ?? '',
     factoryAddress: process.env.RELAYER_FACTORY_ADDRESS ?? '',
     webauthnVerifierAddress: process.env.RELAYER_WEBAUTHN_VERIFIER_ADDRESS ?? '',

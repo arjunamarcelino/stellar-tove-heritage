@@ -40,7 +40,7 @@ class AuthenticatorAttestationResponseDto implements AuthenticatorAttestationRes
   publicKey?: Base64URLString;
 }
 
-class RegistrationResponseDto implements RegistrationResponseJSON {
+export class RegistrationResponseDto implements RegistrationResponseJSON {
   @IsString()
   id!: Base64URLString;
 

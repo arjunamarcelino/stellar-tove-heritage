@@ -29,6 +29,11 @@ describe.skipIf(!LIVE)('SorobanRelayerService transfer (live testnet)', () => {
     rpcUrl: process.env.RELAYER_RPC_URL ?? 'https://soroban-testnet.stellar.org',
     networkPassphrase: process.env.RELAYER_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015',
     relayerSecret: process.env.RELAYER_SECRET ?? '',
+    // Not used by the transfer path; fall back to the relayer seed so the constructor's admin keypair
+    // derivation doesn't throw on a transfer-only live run.
+    factoryAdminSecret: process.env.RELAYER_FACTORY_ADMIN_SECRET ?? process.env.RELAYER_SECRET ?? '',
+    factoryAdminPublicKey: '',
+    probeOnBoot: false,
     walletWasmHash: process.env.RELAYER_WALLET_WASM_HASH ?? '',
     factoryAddress: process.env.RELAYER_FACTORY_ADDRESS ?? '',
     webauthnVerifierAddress: process.env.RELAYER_WEBAUTHN_VERIFIER_ADDRESS ?? '',

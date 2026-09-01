@@ -9,6 +9,9 @@ import { BackofficeStagesModule } from './stages/stages.module';
 import { BackofficeMissionsModule } from './missions/missions.module';
 import { BackofficeSubmissionsModule } from './submissions/submissions.module';
 import { BackofficeUsersModule } from './users/backoffice-users.module';
+import { BackofficeArtworksModule } from './artworks/backoffice-artworks.module';
+import { BackofficeOfferingsModule } from './offerings/backoffice-offerings.module';
+import { BackofficeKycAllowlistModule } from './kyc-allowlist/backoffice-kyc-allowlist.module';
 
 /**
  * Leaf modules whose controllers are served under the backoffice prefix
@@ -24,6 +27,9 @@ export const BACKOFFICE_MODULES = [
   BackofficeMissionsModule,
   BackofficeSubmissionsModule,
   BackofficeUsersModule,
+  BackofficeArtworksModule,
+  BackofficeOfferingsModule,
+  BackofficeKycAllowlistModule,
 ] as const;
 
 @Module({

@@ -24,6 +24,7 @@ import { AdminRole } from '@common/enums/admin-role.enum';
 import { BackofficeGuard } from '@common/guards/backoffice.guard';
 import { PaginationQueryDto } from '@common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '@common/dto/paginated-response.dto';
+import { ApiPaginatedResponse } from '@common/decorators/api-paginated-response.decorator';
 import { AdminsService } from './admins.service';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 import { AdminResponseDto } from './dto/admin-response.dto';
@@ -39,7 +40,7 @@ export class AdminsController {
 
   @Get()
   @ApiOperation({ summary: 'List all admins (paginated)' })
-  @ApiOkResponse({ type: AdminResponseDto, isArray: true })
+  @ApiPaginatedResponse(AdminResponseDto)
   findAll(
     @Query() query: PaginationQueryDto,
   ): Promise<PaginatedResponseDto<AdminResponseDto>> {

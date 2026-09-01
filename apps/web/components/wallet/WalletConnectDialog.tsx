@@ -3,6 +3,7 @@
 import { useRef, useEffect, useId, useState } from 'react';
 import type { WalletConnectState, WalletErrorCode, ProviderId } from '@/lib/types/api';
 import { WALLET_PROVIDERS } from '@/lib/wallet/providers';
+import Spinner from '@/components/ui/Spinner';
 import ManualXdrForm from './ManualXdrForm';
 
 interface WalletConnectDialogProps {
@@ -175,7 +176,7 @@ export default function WalletConnectDialog({
         {/* Loading state */}
         {state.status === 'loading' && (
           <div className="flex items-center justify-center py-8">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-parchment/20 border-t-sienna" />
+            <Spinner size="sm" className="border-parchment/20 border-t-sienna" />
           </div>
         )}
 

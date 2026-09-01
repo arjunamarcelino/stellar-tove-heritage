@@ -313,9 +313,52 @@ export class WalletsService {
     return this.credentialRepo.findByCredentialId(credentialId);
   }
 
+  /**
+   * The ACTIVE passkey credential bound to a user's embedded wallet, or null if the user has no
+   * embedded-passkey wallet (byow-only / email-password user). Used by passkey LOGIN to build the
+   * WebAuthn authentication `allowCredentials` for an email.
+   */
+  async findEmbeddedCredentialForUser(userId: string): Promise<PasskeyCredential | null> {
+    const wallet = await this.walletRepo.findEmbeddedWalletByUserId(userId);
+    if (!wallet) return null;
+    return this.credentialRepo.findByWalletId(wallet.id);
+  }
+
+  /** Advance a passkey credential's stored signature counter after a verified assertion (login). */
+  async updatePasskeyCredentialCounter(credentialId: string, counter: number): Promise<void> {
+    await this.credentialRepo.updateCounter(credentialId, counter);
+  }
+
   /** All LIVE wallets owned by a user, for the `GET /me/wallets` list (TOV-40 stopgap; TOV-24 owns it). */
   async listOwnedWallets(userId: string): Promise<Wallet[]> {
     return this.walletRepo.findAllByUserId(userId);
+  }
+
+  /**
+   * The Stellar address of a user's PRIMARY settlement wallet (TOV-25), or null if they have none.
+   * The single authority on "which address settles for this user" — embedded → contract address (C…),
+   * byow → public key (G…). Consumed by the fractionalize flow (TOV-233) so primary-selection rules
+   * live in one place rather than being re-derived against the `Wallet` entity elsewhere.
+   */
+  async resolvePrimarySettlementAddress(userId: string): Promise<string | null> {
+    const primary = (await this.walletRepo.findAllByUserId(userId)).find(
+      (w) => w.isPrimary && w.status === 'active',
+    );
+    if (!primary) return null;
+    return primary.contractAddress ?? primary.publicKey ?? null;
+  }
+
+  /**
+   * Of the given classic `G…` account StrKeys, the subset that is a LIVE, platform-known BYOW wallet
+   * binding (TOV-243). A `public_key` is only ever set on a `byow` row (embedded wallets use
+   * `contract_address`) and only live rows are returned (soft-deleted excluded), so a returned key is a
+   * currently-bound, SEP-10-proven Collector wallet. One `IN (…)` query, no `user` relation hydrated. Used
+   * as an ADVISORY compliance signal when allowlisting external settlement wallets (confused-deputy guard):
+   * the caller warns/audits for the absentees, never blocks. Not an authz decision.
+   */
+  async filterKnownActiveByowAddresses(publicKeys: string[]): Promise<Set<string>> {
+    if (publicKeys.length === 0) return new Set();
+    return new Set(await this.walletRepo.findActiveByowPublicKeysIn(publicKeys));
   }
 
   /**

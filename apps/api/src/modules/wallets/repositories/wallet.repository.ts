@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 import { BaseRepository } from '@common/repositories/base.repository';
 import { Wallet } from '../entities/wallet.entity';
 import { IWalletRepository } from './wallet-repository.interface';
@@ -17,6 +17,17 @@ export class WalletRepository extends BaseRepository<Wallet> implements IWalletR
       where: { publicKey },
       relations: { user: true },
     });
+  }
+
+  async findActiveByowPublicKeysIn(publicKeys: string[]): Promise<string[]> {
+    if (publicKeys.length === 0) return [];
+    // Live rows only (TypeORM excludes soft-deleted); select just the key — no `user` relation for a
+    // membership check. `public_key` is non-null only on byow rows, so the match is byow-scoped.
+    const rows = await this.repository.find({
+      where: { publicKey: In(publicKeys) },
+      select: { publicKey: true },
+    });
+    return rows.map((r) => r.publicKey).filter((k): k is string => k !== null);
   }
 
   async findEmbeddedWalletByUserId(userId: string): Promise<Wallet | null> {

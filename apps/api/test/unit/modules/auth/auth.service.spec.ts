@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { AuthService } from '@modules/auth/auth.service';
 import { UsersService } from '@modules/users/users.service';
 import { UserStagesService } from '@modules/stages/stages.service';
+import { ProfileViewService } from '@modules/users/profile/profile-view.service';
 import { jwtConfig } from '@config/jwt.config';
 const mockJwtConfig = {
   accessSecret: 'test-access-secret-that-is-32-chars!',
@@ -55,6 +56,7 @@ describe('AuthService', () => {
         { provide: UserStagesService, useValue: userStagesService },
         { provide: JwtService, useValue: jwtService },
         { provide: jwtConfig.KEY, useValue: mockJwtConfig },
+        { provide: ProfileViewService, useValue: { buildForUser: vi.fn().mockResolvedValue({}) } },
       ],
     }).compile();
 

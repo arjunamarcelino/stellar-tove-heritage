@@ -23,3 +23,28 @@ export function failHttp(errorCode: ErrorCode, status: HttpStatus, message: stri
     status,
   );
 }
+
+/** A single field-level validation failure (RFC-7807-ish `errors[]` entry). */
+export interface FieldError {
+  field: string;
+  message: string;
+}
+
+/**
+ * A 422 `VALIDATION_FAILED` carrying a field-level `errors[]` (dotted paths like `socialLinks.twitter`).
+ * The global `ValidationPipe` emits 400 for DTO failures, so surfaces needing the AC's 422 + `errors[]`
+ * shape (TOV-30 `PATCH /me`) validate in the service and throw this. `AllExceptionsFilter` passes the
+ * object body through and preserves the explicit `errorCode`.
+ */
+export function failValidation(errors: FieldError[], message = 'Validation failed'): HttpException {
+  return new HttpException(
+    {
+      statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+      error: REASON_PHRASE[HttpStatus.UNPROCESSABLE_ENTITY] ?? 'Unprocessable Entity',
+      message,
+      errorCode: ErrorCode.VALIDATION_FAILED,
+      errors,
+    },
+    HttpStatus.UNPROCESSABLE_ENTITY,
+  );
+}
