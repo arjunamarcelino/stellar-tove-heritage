@@ -63,8 +63,11 @@ export const stageSchema = z.object({
 });
 
 const profileSchema = z.object({
-  firstName: z.string(),
-  lastName: z.string(),
+  // Passkey accounts sign up with only an email, so the backend returns null names until the user
+  // fills them in. Keep these nullable rather than requiring strings, or a name-less (passkey) user
+  // fails profile validation and gets bounced back to /login.
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
   currentStage: stageSchema.nullish(),
 });
 

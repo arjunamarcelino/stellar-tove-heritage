@@ -21,3 +21,18 @@ export const registrationResponseSchema = z.object({
     attestationObject: z.string(),
   }),
 });
+
+// Sibling guard for the WebAuthn assertion (login ceremony), forwarded to /v1/auth/passkey/finish.
+// Same defense-in-depth intent as registrationResponseSchema — the ORIGINAL object is forwarded so
+// no fields (userHandle, extensions) are stripped before the backend verifies the signature.
+export const authenticationResponseSchema = z.object({
+  id: z.string(),
+  rawId: z.string(),
+  type: z.literal('public-key'),
+  response: z.object({
+    clientDataJSON: z.string(),
+    authenticatorData: z.string(),
+    signature: z.string(),
+    userHandle: z.string().optional(),
+  }),
+});
