@@ -1,45 +1,39 @@
 'use client';
 
-import { useState, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { NAV_LINKS } from '@/lib/constants';
 import { logoutAction } from '@/app/actions/logout';
 import { useMobileMenu } from '@/hooks/useMobileMenu';
-import { useWalletConnect } from '@/hooks/useWalletConnect';
-import WalletConnectDialog from '@/components/wallet/WalletConnectDialog';
+import { truncateAddress } from '@/lib/wallet/format';
 
-export default function Header() {
+interface HeaderProps {
+  // 'transparent' sits over the dark Hero on the home page. 'solid' gives a dark bar for route
+  // groups with a light (alabaster) page background — otherwise the light parchment text has no
+  // contrast and the navbar is effectively invisible. Mirrors the dark Footer used on the same pages.
+  variant?: 'transparent' | 'solid';
+  // The user's wallet address (primary → embedded → first), passed from authenticated layouts. When
+  // present the wallet control shows the truncated address; otherwise it's a plain "Wallet" link.
+  walletAddress?: string | null;
+}
+
+export default function Header({ variant = 'transparent', walletAddress }: HeaderProps) {
   const pathname = usePathname();
   const { menuOpen, close, toggle } = useMobileMenu();
-  const [walletDialogOpen, setWalletDialogOpen] = useState(false);
-  const {
-    state: walletState,
-    providerId: walletProviderId,
-    publicKey: walletPublicKey,
-    selectProvider,
-    sign,
-    requestManualChallenge,
-    verifyManualXdr,
-    reset: walletReset,
-  } = useWalletConnect();
-  const handleWalletDialogClose = useCallback(() => {
-    setWalletDialogOpen(false);
-    walletReset();
-  }, [walletReset]);
+  const walletLabel = walletAddress ? truncateAddress(walletAddress) : 'Wallet';
 
   return (
     <header
-      className="fixed top-0 left-0 right-0 z-50 bg-transparent"
+      className={`fixed top-0 left-0 right-0 z-50 ${
+        variant === 'solid' ? 'bg-ink border-b border-white/10' : 'bg-transparent'
+      }`}
       style={{ height: 'var(--header-height)' }}
     >
       <nav className="mx-auto flex h-full max-w-[var(--width-content)] items-center justify-between px-[var(--spacing-gutter)]">
         {/* Left — status indicator */}
         <div className="hidden items-center gap-2 lg:flex">
           <span className="h-2 w-2 rounded-full bg-green-500" aria-hidden="true" />
-          <span className="font-body text-xs text-parchment/80">
-            Your access is now available
-          </span>
+          <span className="font-body text-xs text-parchment/80">Your access is now available</span>
         </div>
 
         {/* Center — pill navigation */}
@@ -62,9 +56,7 @@ export default function Header() {
                 <Link
                   href={link.href}
                   className={`inline-flex items-center rounded-full px-5 py-1.5 font-body text-sm transition-colors duration-200 ${
-                    isActive
-                      ? 'bg-parchment text-ink'
-                      : 'text-parchment/70 hover:text-parchment'
+                    isActive ? 'bg-parchment text-ink' : 'text-parchment/70 hover:text-parchment'
                   }`}
                 >
                   {link.label}
@@ -74,15 +66,18 @@ export default function Header() {
           })}
         </ul>
 
-        {/* Right — Connect wallet + Log Out */}
+        {/* Right — Wallet (manage) + Log Out. The user already has an embedded smart wallet from
+            passkey auth, so this links to wallet settings rather than offering a second sign-in. */}
         <div className="hidden items-center gap-4 lg:flex">
-          <button
-            type="button"
-            onClick={() => setWalletDialogOpen(true)}
-            className="rounded-full border border-parchment/20 px-4 py-1.5 font-body text-sm text-parchment/70 transition-colors duration-200 hover:border-parchment/40 hover:text-parchment"
+          <Link
+            href="/settings"
+            title={walletAddress ?? undefined}
+            className={`rounded-full border border-parchment/20 px-4 py-1.5 text-sm text-parchment/70 transition-colors duration-200 hover:border-parchment/40 hover:text-parchment ${
+              walletAddress ? 'font-mono' : 'font-body'
+            }`}
           >
-            Connect wallet
-          </button>
+            {walletLabel}
+          </Link>
           <form action={logoutAction}>
             <button
               type="submit"
@@ -146,7 +141,14 @@ export default function Header() {
             aria-label="Close menu"
             tabIndex={menuOpen ? 0 : -1}
           >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <svg
+              className="h-5 w-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
@@ -186,19 +188,19 @@ export default function Header() {
           })}
         </nav>
 
-        {/* Connect wallet + Logout at bottom */}
+        {/* Wallet (manage) + Logout at bottom */}
         <div className="border-t border-parchment/10 p-6 flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              close();
-              setWalletDialogOpen(true);
-            }}
-            className="w-full rounded-lg px-4 py-3 text-left font-body text-sm text-parchment/60 transition-colors duration-200 hover:bg-parchment/5 hover:text-parchment"
+          <Link
+            href="/settings"
+            onClick={close}
+            title={walletAddress ?? undefined}
+            className={`w-full rounded-lg px-4 py-3 text-left text-sm text-parchment/60 transition-colors duration-200 hover:bg-parchment/5 hover:text-parchment ${
+              walletAddress ? 'font-mono' : 'font-body'
+            }`}
             tabIndex={menuOpen ? 0 : -1}
           >
-            Connect wallet
-          </button>
+            {walletLabel}
+          </Link>
           <form action={logoutAction}>
             <button
               type="submit"
@@ -210,19 +212,6 @@ export default function Header() {
           </form>
         </div>
       </aside>
-
-      <WalletConnectDialog
-        isOpen={walletDialogOpen}
-        onClose={handleWalletDialogClose}
-        state={walletState}
-        providerId={walletProviderId}
-        publicKey={walletPublicKey}
-        onSelectProvider={selectProvider}
-        onSign={sign}
-        onRequestManualChallenge={requestManualChallenge}
-        onVerifyManualXdr={verifyManualXdr}
-        onReset={walletReset}
-      />
     </header>
   );
 }
