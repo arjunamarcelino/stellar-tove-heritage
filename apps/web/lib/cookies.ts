@@ -1,7 +1,16 @@
 import 'server-only';
 
+import { cookies } from 'next/headers';
 import type { ResponseCookies } from 'next/dist/compiled/@edge-runtime/cookies';
 import { COOKIE_KEYS } from '@/lib/constants';
+
+// Read the caller's access token from the httpOnly cookie (server-side only — never accept it as a client
+// argument). Shared by page Server Components and the money-flow server actions so the cookie key/shape lives
+// in one place. `cookies()` is async in Next 16.
+export async function readAccessToken(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get(COOKIE_KEYS.accessToken)?.value ?? null;
+}
 
 export function setAuthTokenCookies(
   cookieStore: ResponseCookies,

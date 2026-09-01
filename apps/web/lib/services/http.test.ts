@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import { postJson, getJson, deleteJson } from '@/lib/services/http';
+import { postJson, patchJson, getJson, deleteJson, postForm } from '@/lib/services/http';
 
 const OLD_ENV = process.env;
 
@@ -75,6 +75,56 @@ describe('postJson', () => {
   });
 });
 
+describe('patchJson', () => {
+  it('returns status 0 without fetching when API_BASE_URL is unset', async () => {
+    delete process.env.API_BASE_URL;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await patchJson('/x', { a: 1 })).toEqual({ ok: false, status: 0, data: null });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('PATCHes JSON with the Content-Type header and returns the parsed body', async () => {
+    const fetchFn = stubFetch(200, { id: 'me' });
+    const outcome = await patchJson('/v1/me', { bio: 'hi' });
+    expect(outcome).toEqual({ ok: true, status: 200, data: { id: 'me' } });
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe('https://api.test/v1/me');
+    expect(init.method).toBe('PATCH');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body)).toEqual({ bio: 'hi' });
+  });
+
+  it('merges caller headers (e.g. Authorization) with Content-Type', async () => {
+    const fetchFn = stubFetch(200, {});
+    await patchJson('/v1/me', { bio: null }, { headers: { Authorization: 'Bearer abc' } });
+    const init = fetchFn.mock.calls[0][1];
+    expect(init.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer abc',
+    });
+    // An explicit null must serialize (clear-a-field semantics), not be dropped.
+    expect(JSON.parse(init.body)).toEqual({ bio: null });
+  });
+
+  it('resolves a 204 empty body to { ok: true, status: 204, data: null }', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 204,
+        json: vi.fn().mockRejectedValue(new Error('no content')),
+      }),
+    );
+    expect(await patchJson('/v1/me', {})).toEqual({ ok: true, status: 204, data: null });
+  });
+
+  it('maps a thrown fetch (network/abort) to status 0', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('boom')));
+    expect(await patchJson('/v1/me', {})).toEqual({ ok: false, status: 0, data: null });
+  });
+});
+
 describe('getJson', () => {
   it('returns status 0 without fetching when API_BASE_URL is unset', async () => {
     delete process.env.API_BASE_URL;
@@ -131,5 +181,45 @@ describe('deleteJson', () => {
   it('maps a thrown/timed-out DELETE to status 0 (not a false success)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('boom')));
     expect(await deleteJson('/v1/me/wallets/w1')).toEqual({ ok: false, status: 0, data: null });
+  });
+});
+
+describe('postForm', () => {
+  function form(): FormData {
+    const fd = new FormData();
+    fd.set('field', 'value');
+    return fd;
+  }
+
+  it('returns status 0 without fetching when API_BASE_URL is unset', async () => {
+    delete process.env.API_BASE_URL;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await postForm('/x', form())).toEqual({ ok: false, status: 0, data: null });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('POSTs the FormData body WITHOUT a Content-Type header (runtime sets the boundary)', async () => {
+    const fetchFn = stubFetch(202, { ok: true });
+    const fd = form();
+    const outcome = await postForm('/v1/me/kyc/submissions', fd, {
+      headers: { Authorization: 'Bearer tok', 'Idempotency-Key': 'k' },
+    });
+    expect(outcome).toEqual({ ok: true, status: 202, data: { ok: true } });
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe('https://api.test/v1/me/kyc/submissions');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(fd);
+    expect(init.headers).toEqual({ Authorization: 'Bearer tok', 'Idempotency-Key': 'k' });
+    expect(init.headers['Content-Type']).toBeUndefined();
+  });
+
+  it('passes an AbortSignal when a timeout is given and maps a thrown fetch to status 0', async () => {
+    const fetchFn = stubFetch(202, {});
+    await postForm('/thing', form(), { timeoutMs: 5000 });
+    expect(fetchFn.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('boom')));
+    expect(await postForm('/thing', form())).toEqual({ ok: false, status: 0, data: null });
   });
 });
