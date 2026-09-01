@@ -8,6 +8,7 @@ import {
   explorerTxUrl,
   formatTokenAmount,
 } from '@/lib/wallet/format';
+import Spinner from '@/components/ui/Spinner';
 import { WALLET_DESTRUCTIVE_BUTTON_CLASS } from '@/components/wallet/constants';
 import { AUTH_INPUT_CLASS, AUTH_SECONDARY_BUTTON_CLASS } from '@/components/auth/constants';
 import type {
@@ -296,7 +297,7 @@ export default function WalletExportDialog({ wallet, onClose, onExported }: Prop
         state.status === 'settling' ||
         state.status === 'reconciling') && (
         <div className="py-4 text-center" aria-live="polite">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-ochre motion-reduce:animate-none" />
+          <Spinner className="border-white/20 border-t-ochre" />
           <h2
             id="wallet-export-heading"
             ref={headingRef}

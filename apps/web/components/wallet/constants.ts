@@ -18,3 +18,15 @@ export const WALLET_EXPORTED_BADGE_CLASS =
 export const WALLET_PRIMARY_BADGE_CLASS =
   'inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 ' +
   'px-2.5 py-0.5 text-xs font-medium text-white/70';
+
+// "USDC trustline needed" badge (TOV-47) — a warm-alert pill (sienna) drawing the eye to a wallet that
+// can't receive USDC yet. Text + glyph, not colour alone (WCAG 1.4.1).
+export const WALLET_TRUSTLINE_NEEDED_BADGE_CLASS =
+  'inline-flex items-center gap-1.5 rounded-full border border-sienna/40 bg-sienna/15 ' +
+  'px-2.5 py-0.5 text-xs font-medium text-sienna';
+
+// "USDC check unavailable" badge (TOV-47) — neutral/muted pill for the fail-open (Horizon unreachable)
+// and no-issuer-configured (mainnet pre-audit) states. Never asserts needed/ready.
+export const WALLET_TRUSTLINE_UNAVAILABLE_BADGE_CLASS =
+  'inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 ' +
+  'px-2.5 py-0.5 text-xs font-medium text-white/50';

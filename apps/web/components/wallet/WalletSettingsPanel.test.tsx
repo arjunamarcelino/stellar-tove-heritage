@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import {
   fakeEmbeddedWallet,
   fakeByowWallet,
@@ -9,15 +9,51 @@ import {
   fakeExportedByowWallet,
 } from '@/test/fixtures/walletExport';
 
-const h = vi.hoisted(() => ({ refresh: vi.fn() }));
+const h = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  // An add-201 result carrying a trustlineRequired instruction (add-success → trustline handoff).
+  addedWithTrustline: {
+    id: 'w-tl',
+    kind: 'byow' as const,
+    address: 'GTLADDR000000000000000000000000000000000000000000000000AA',
+    exported: false,
+    isPrimary: false,
+    trustlineRequired: {
+      changeTrustXdr: 'AAAA',
+      asset: { code: 'USDC', issuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5' },
+    },
+  },
+}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: h.refresh }) }));
+vi.mock('@/app/actions/trustline', () => ({ revalidateTrustlineStatus: vi.fn() }));
 // Stub the dialogs so the panel test doesn't mount the native <dialog>/hooks. WalletRow is left real
 // so the trailing-action controls it renders are exercised through the panel. The set-primary stub is
 // controllable: it exposes buttons that call onResolved(true|false) so the panel's resolve handling
 // (announcement + refresh) can be driven from the test.
 vi.mock('@/components/wallet/WalletExportDialog', () => ({ default: () => null }));
 vi.mock('@/components/wallet/WalletRemoveDialog', () => ({ default: () => null }));
-vi.mock('@/components/wallet/WalletAddDialog', () => ({ default: () => null }));
+// Add-dialog stub exposes a button that fires onAdded with a trustlineRequired wallet, so the panel's
+// add-success → trustline handoff can be driven from the test.
+vi.mock('@/components/wallet/WalletAddDialog', () => ({
+  default: ({ onAdded }: { onAdded: (w: typeof h.addedWithTrustline) => void }) => (
+    <button data-testid="stub-added-with-trustline" onClick={() => onAdded(h.addedWithTrustline)}>
+      added
+    </button>
+  ),
+}));
+// Trustline-dialog stub exposes Done/Skip so the panel's resolve handling (toast + refresh) is testable.
+vi.mock('@/components/wallet/WalletTrustlineDialog', () => ({
+  default: ({ onDone, onSkip }: { onDone: (added: boolean) => void; onSkip: () => void }) => (
+    <div data-testid="stub-trustline-dialog">
+      <button data-testid="stub-trustline-done" onClick={() => onDone(true)}>
+        done
+      </button>
+      <button data-testid="stub-trustline-skip" onClick={onSkip}>
+        skip
+      </button>
+    </div>
+  ),
+}));
 vi.mock('@/components/wallet/WalletSetPrimaryDialog', () => ({
   default: ({ onResolved }: { onResolved: (didPromote: boolean) => void }) => (
     <div>
@@ -171,5 +207,57 @@ describe('WalletSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /set .* as primary/i }));
     fireEvent.click(screen.getByTestId('stub-resolve-race'));
     expect(h.refresh).toHaveBeenCalled();
+  });
+});
+
+describe('WalletSettingsPanel — USDC trustline wiring (TOV-47)', () => {
+  it('opens the trustline dialog from a row CTA when a BYOW wallet needs a trustline', () => {
+    render(
+      <WalletSettingsPanel
+        wallets={[fakeAddedByowWallet]}
+        trustlineStatuses={{ [fakeAddedByowWallet.address]: 'missing' }}
+      />,
+    );
+    expect(screen.queryByTestId('stub-trustline-dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /add usdc trustline/i }));
+    expect(screen.getByTestId('stub-trustline-dialog')).toBeInTheDocument();
+  });
+
+  it('hands off from add-success to the trustline dialog when trustlineRequired is present', () => {
+    render(<WalletSettingsPanel wallets={[fakeAddedByowWallet]} />);
+    fireEvent.click(screen.getByRole('button', { name: /add wallet/i }));
+    fireEvent.click(screen.getByTestId('stub-added-with-trustline'));
+    expect(screen.getByTestId('stub-trustline-dialog')).toBeInTheDocument();
+    // The refresh is deferred until the trustline flow resolves (would tear down the open dialog).
+    expect(h.refresh).not.toHaveBeenCalled();
+  });
+
+  it('on trustline done: toasts success and refreshes', async () => {
+    render(
+      <WalletSettingsPanel
+        wallets={[fakeAddedByowWallet]}
+        trustlineStatuses={{ [fakeAddedByowWallet.address]: 'missing' }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /add usdc trustline/i }));
+    fireEvent.click(screen.getByTestId('stub-trustline-done'));
+    expect(screen.getByText(/USDC trustline added/i)).toBeInTheDocument();
+    // handleTrustlineDone awaits revalidateTrustlineStatus (cache-bust) before router.refresh().
+    await waitFor(() => expect(h.refresh).toHaveBeenCalled());
+    expect(screen.queryByTestId('stub-trustline-dialog')).not.toBeInTheDocument();
+  });
+
+  it('on trustline skip: closes and refreshes (badge re-derives), no toast', () => {
+    render(
+      <WalletSettingsPanel
+        wallets={[fakeAddedByowWallet]}
+        trustlineStatuses={{ [fakeAddedByowWallet.address]: 'missing' }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /add usdc trustline/i }));
+    fireEvent.click(screen.getByTestId('stub-trustline-skip'));
+    expect(h.refresh).toHaveBeenCalled();
+    expect(screen.queryByTestId('stub-trustline-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText(/USDC trustline added/i)).not.toBeInTheDocument();
   });
 });

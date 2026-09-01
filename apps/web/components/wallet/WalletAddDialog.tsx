@@ -7,11 +7,13 @@ import {
   AUTH_PRIMARY_BUTTON_CLASS,
   AUTH_SECONDARY_BUTTON_CLASS,
 } from '@/components/auth/constants';
-import type { WalletAddState } from '@/lib/types/api';
+import type { AddedWallet, WalletAddState } from '@/lib/types/api';
 
 interface Props {
   // Success — the parent refreshes the list and closes the dialog, restoring focus to a stable element.
-  onAdded: () => void;
+  // Receives the added wallet (carrying an optional `trustlineRequired` the parent may act on). A
+  // parent that ignores the arg (a plain `() => void`) still type-checks.
+  onAdded: (wallet: AddedWallet) => void;
   // Cancel/close without adding — parent closes and restores focus to the trigger.
   onClose: () => void;
 }
@@ -70,8 +72,9 @@ export default function WalletAddDialog({ onAdded, onClose }: Props) {
   }
 
   function handleDone() {
+    if (state.status !== 'success') return;
     dialogRef.current?.close();
-    onAdded();
+    onAdded(state.wallet);
   }
 
   return (

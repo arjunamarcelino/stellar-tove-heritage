@@ -9,6 +9,7 @@ import {
   SET_PRIMARY_WALLET_MESSAGES,
 } from '@/lib/wallet/manageMessages';
 import type {
+  AddedWallet,
   AddWalletChallengeResult,
   AddWalletResult,
   AddWalletErrorCode,
@@ -39,6 +40,27 @@ const challengeSchema = z.object({
   challengeTxXdr: z.string(),
   networkPassphrase: z.string(),
 });
+
+// The add-201 body is the shared wallet shape PLUS an optional, forward-compat `trustlineRequired`
+// (the BYOW USDC change-trust XDR + asset the client can sign next). Nullish→undefined so a backend
+// that omits the field, or a half-migration sending null, still parses and matches AddedWallet
+// (which never carries null). Extends walletObjectSchema so the two can't drift.
+const addedWalletSchema = walletObjectSchema.extend({
+  trustlineRequired: z
+    .object({
+      changeTrustXdr: z.string(),
+      asset: z.object({ code: z.string(), issuer: z.string() }),
+    })
+    .nullish()
+    .transform((v) => v ?? undefined),
+});
+
+// Compile-time guard mirroring _AssertWalletShape in wallets.ts: the parsed output must stay
+// assignable to AddedWallet, so a drift in either fails to compile here (addWallet returns
+// parsed.data directly as an AddedWallet).
+type _AssertAddedShape = z.infer<typeof addedWalletSchema> extends AddedWallet ? true : never;
+const _assertAddedShape: _AssertAddedShape = true;
+void _assertAddedShape;
 
 // Keyed on the union so a new AddWalletErrorCode fails to compile until classified. The backend sends
 // distinct codes for the two idempotency conditions (TOV-24 PR #26), so both pass through directly —
@@ -143,7 +165,7 @@ export async function addWallet(
 
   if (!outcome.ok) return { status: 'error', ...mapAddError(outcome.status, outcome.data) };
 
-  const parsed = walletObjectSchema.safeParse(outcome.data);
+  const parsed = addedWalletSchema.safeParse(outcome.data);
   if (!parsed.success) {
     return { status: 'error', code: 'SERVER_ERROR', message: ADD_WALLET_MESSAGES.SERVER_ERROR };
   }

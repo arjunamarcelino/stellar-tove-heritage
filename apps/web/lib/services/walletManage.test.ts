@@ -119,6 +119,42 @@ describe('addWallet', () => {
       code: 'SERVER_ERROR',
     });
   });
+
+  it('parses the trustlineRequired bundle from a 201 body (BYOW USDC)', async () => {
+    stubFetch(201, {
+      ...fakeAddedByowWallet,
+      trustlineRequired: {
+        changeTrustXdr: 'AAAA...',
+        asset: { code: 'USDC', issuer: 'GBBD47IF...' },
+      },
+    });
+    const result = await addWallet('tok', 's', 'k');
+    expect(result.status).toBe('success');
+    if (result.status === 'success') {
+      expect(result.wallet.trustlineRequired).toEqual({
+        changeTrustXdr: 'AAAA...',
+        asset: { code: 'USDC', issuer: 'GBBD47IF...' },
+      });
+    }
+  });
+
+  it('leaves trustlineRequired undefined when the 201 body omits it', async () => {
+    stubFetch(201, fakeAddedByowWallet);
+    const result = await addWallet('tok', 's', 'k');
+    expect(result.status).toBe('success');
+    if (result.status === 'success') {
+      expect(result.wallet.trustlineRequired).toBeUndefined();
+    }
+  });
+
+  it('normalizes a null trustlineRequired to undefined (forward-compat)', async () => {
+    stubFetch(201, { ...fakeAddedByowWallet, trustlineRequired: null });
+    const result = await addWallet('tok', 's', 'k');
+    expect(result.status).toBe('success');
+    if (result.status === 'success') {
+      expect(result.wallet.trustlineRequired).toBeUndefined();
+    }
+  });
 });
 
 describe('removeWallet', () => {

@@ -9,6 +9,8 @@ import {
   exportSubmitAction,
   exportStatusAction,
 } from '@/app/actions/walletExport';
+import { delay } from '@/lib/async';
+import { deriveSettlementOutcome } from '@/lib/wallet/settlementOutcome';
 import type {
   WalletExportState,
   UseWalletExportReturn,
@@ -40,23 +42,6 @@ function enrichStatusItems(
           decimals: b.decimals,
         }
       : item;
-  });
-}
-
-// Abortable delay — clears the timer and rejects on abort so the reconcile loop unwinds immediately
-// on unmount/reset instead of leaving a pending timer holding a closure (todo 070).
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    if (signal.aborted) return reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
-    const id = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(id);
-        reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
-      },
-      { once: true },
-    );
   });
 }
 
@@ -159,25 +144,24 @@ export function useWalletExport(walletId: string, ownAddress: string): UseWallet
             return;
           }
           if (exportState === 'failed') {
-            // Derive the outcome from the full item set, not just the aggregate label (todo 068):
-            // any confirmed item → partial; any still-in-flight item → we can't yet claim "nothing
-            // moved" → settlementUnknown; only all-terminally-failed → a clean "nothing moved" error.
-            const anyMoved = items.some((i) => i.status === 'confirmed');
-            const anyInFlight = items.some(
-              (i) => i.status === 'pending' || i.status === 'submitted',
-            );
-            if (anyMoved) {
-              setState({ status: 'partial', items });
-            } else if (anyInFlight) {
+            // Derive the outcome from the full item set, not just the aggregate label (todo 068), via the
+            // shared money-safe classifier (TOV-48 #259): any confirmed → partial; any still-in-flight →
+            // we can't yet claim "nothing moved" → settlementUnknown; only all-terminally-failed → a clean
+            // "nothing moved" error.
+            const outcome = deriveSettlementOutcome(items);
+            if (outcome === 'inflight') {
               setState({ status: 'settlementUnknown' });
-            } else {
-              // All items terminally failed. The dialog's error screen states "nothing was moved"; keep
-              // the base copy here from the single source of truth (todo 071), don't fork it.
+            } else if (outcome === 'failed') {
+              // The dialog's error screen states "nothing was moved"; keep the base copy from the single
+              // source of truth (todo 071), don't fork it.
               setState({
                 status: 'error',
                 code: 'TRANSFER_FAILED',
                 message: EXPORT_MESSAGES.TRANSFER_FAILED,
               });
+            } else {
+              // complete | partial — at least one item confirmed, so assets moved.
+              setState({ status: 'partial', items });
             }
             return;
           }
